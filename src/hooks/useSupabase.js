@@ -243,7 +243,6 @@ export const useReviews = () => {
   return { reviews, loading, error, addReview, refresh: fetchReviews };
 };
 
-// NEW: Hook specifically for employees
 export const useEmployees = () => {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -282,7 +281,6 @@ export const useEmployees = () => {
 
   const createEmployee = async (employeeData) => {
     try {
-      // First create auth user
       const { data: authData, error: signUpError } = await supabase.auth.signUp({
         email: employeeData.email,
         password: employeeData.password,
@@ -297,17 +295,14 @@ export const useEmployees = () => {
       if (signUpError) throw signUpError;
 
       if (authData.user) {
-        // Wait for profile creation
         await new Promise(resolve => setTimeout(resolve, 1500));
         
-        // Check if profile exists
         let { data: userData, error: userError } = await supabase
           .from('users')
           .select('*')
           .eq('id', authData.user.id)
           .maybeSingle();
 
-        // If no profile, create manually
         if (!userData) {
           const { data: newUser, error: insertError } = await supabase
             .from('users')

@@ -1404,3 +1404,69 @@
     padding: 0.6rem 0.8rem;
   }
 }
+
+/* Order Type Selector */
+.order-type-selector {
+  margin-bottom: 1.5rem;
+}
+
+.order-type-selector label {
+  display: block;
+  font-weight: 600;
+  color: #f8fafc;
+  margin-bottom: 0.5rem;
+}
+
+.order-type-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.order-type-btn {
+  padding: 0.6rem 1rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 2px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  color: #94a3b8;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-family: 'Inter', sans-serif;
+}
+
+.order-type-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.order-type-btn.active {
+  border-color: #ff6b35;
+  background: rgba(255, 107, 53, 0.1);
+  color: #ff6b35;
+}
+
+/* Order Type Badge in Orders */
+.order-badges {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.order-type-badge {
+  padding: 0.2rem 0.6rem;
+  border-radius: 12px;
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+.order-type-badge.dine-in {
+  background: rgba(52, 211, 153, 0.1);
+  color: #34d399;
+}
+
+.order-type-badge.takeout {
+  background: rgba(96, 165, 250, 0.1);
+  color: #60a5fa;
+}

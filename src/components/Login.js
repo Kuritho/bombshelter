@@ -2,6 +2,11 @@ import React, { useState } from 'react';
 import { supabase } from '../supabaseClient';
 import './Login.css';
 
+// Import logo
+import logo from '../assets/logo.jpg'; // If in src/assets/
+// OR if in public folder:
+// const logo = '/logo.png';
+
 const Login = ({ onLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -20,6 +25,7 @@ const Login = ({ onLogin }) => {
 
     try {
       if (isSignUp) {
+        // SIGN UP FLOW - Force role to customer
         const signUpRole = 'customer';
         
         const { data: authData, error: signUpError } = await supabase.auth.signUp({
@@ -43,14 +49,17 @@ const Login = ({ onLogin }) => {
         if (authData.user) {
           console.log('Auth user created:', authData.user.id);
           
+          // Wait a moment for auth to fully process
           await new Promise(resolve => setTimeout(resolve, 1000));
           
+          // Try to get existing profile
           let { data: existingUser, error: fetchError } = await supabase
             .from('users')
             .select('*')
             .eq('id', authData.user.id)
             .maybeSingle();
 
+          // If no profile exists, create one manually
           if (!existingUser) {
             console.log('Creating user profile manually...');
             
@@ -78,12 +87,14 @@ const Login = ({ onLogin }) => {
               setSuccessMessage('Account created successfully! Logging you in...');
             }
           } else {
+            // Profile already exists
             console.log('Profile already exists:', existingUser);
             onLogin(signUpRole, existingUser);
             setSuccessMessage('Account created successfully! Logging you in...');
           }
         }
       } else {
+        // SIGN IN FLOW - Allow all roles to sign in
         const { data: authData, error: signInError } = await supabase.auth.signInWithPassword({
           email,
           password
@@ -92,6 +103,7 @@ const Login = ({ onLogin }) => {
         if (signInError) throw signInError;
 
         if (authData.user) {
+          // Get user profile
           const { data: userData, error: userError } = await supabase
             .from('users')
             .select('*')
@@ -107,6 +119,7 @@ const Login = ({ onLogin }) => {
             throw new Error('User profile not found. Please contact support.');
           }
 
+          // Verify role matches
           if (userData.role !== role) {
             throw new Error(`This account is registered as ${userData.role}. Please select the correct role.`);
           }
@@ -124,30 +137,32 @@ const Login = ({ onLogin }) => {
 
   return (
     <div className="login-container">
-      {/* Decorative food icons background */}
-      <div className="food-bg-decoration">
-        <span className="food-icon">🍔</span>
-        <span className="food-icon">🍕</span>
-        <span className="food-icon">🌮</span>
-        <span className="food-icon">🍣</span>
-        <span className="food-icon">🥗</span>
-        <span className="food-icon">🍝</span>
-        <span className="food-icon">🥘</span>
-        <span className="food-icon">🍰</span>
-        <span className="food-icon">🥤</span>
-        <span className="food-icon">🍩</span>
-        <span className="food-icon">🌯</span>
-        <span className="food-icon">🍜</span>
+      {/* Decorative coffee beans background */}
+      <div className="coffee-bg-decoration">
+        <span className="coffee-bean">☕</span>
+        <span className="coffee-bean">☕</span>
+        <span className="coffee-bean">☕</span>
+        <span className="coffee-bean">☕</span>
+        <span className="coffee-bean">☕</span>
+        <span className="coffee-bean">☕</span>
+        <span className="coffee-bean">☕</span>
+        <span className="coffee-bean">☕</span>
       </div>
 
       <div className="login-wrapper">
         <div className="login-card">
           {/* Logo/Brand Section */}
           <div className="brand-section">
-            <div className="brand-icon">🍽️</div>
-            <h1 className="brand-name">Bombshelter</h1>
-            <p className="brand-tagline">Ordering System</p>
-            <p className="brand-subtitle">Delicious food delivered to your doorstep</p>
+            <div className="brand-logo-container">
+              <img 
+                src={logo}
+                alt="1of1 Coffee" 
+                className="brand-logo-image"
+              />
+            </div>
+            <h1 className="brand-name">1of1 Coffee</h1>
+            <p className="brand-tagline">Bombshelter Ordering System</p>
+            <p className="brand-subtitle">Premium Coffee Experience</p>
           </div>
 
           <div className="auth-section">
@@ -155,8 +170,8 @@ const Login = ({ onLogin }) => {
               <h2>{isSignUp ? 'Create Account' : 'Welcome Back'}</h2>
               <p className="auth-subtitle">
                 {isSignUp 
-                  ? 'Join us and start ordering your favorites' 
-                  : 'Sign in to continue ordering'}
+                  ? 'Join our coffee community' 
+                  : 'Sign in to continue your coffee journey'}
               </p>
             </div>
             
@@ -201,7 +216,7 @@ const Login = ({ onLogin }) => {
                 <div className="form-group">
                   <label>Full Name</label>
                   <div className="input-wrapper">
-                    <span className="input-icon">👤</span>
+                    <span className="input-icon"></span>
                     <input
                       type="text"
                       value={name}
@@ -213,26 +228,32 @@ const Login = ({ onLogin }) => {
                 </div>
               )}
 
-              <div className="form-group">
-                <label>I am a...</label>
-                <div className="role-select-wrapper">
-                  <select 
-                    value={role} 
-                    onChange={(e) => setRole(e.target.value)}
-                    className="role-select"
-                  >
-                    <option value="customer">🍽️ Customer</option>
-                    <option value="employee">👨‍🍳 Employee</option>
-                    <option value="owner">👑 Owner</option>
-                  </select>
+              {/* Role Selection - Only show during Sign In */}
+              {!isSignUp && (
+                <div className="form-group">
+                  <label>I am a...</label>
+                  <div className="role-select-wrapper">
+                    <select 
+                      value={role} 
+                      onChange={(e) => setRole(e.target.value)}
+                      className="role-select"
+                    >
+                      <option value="customer">☕ Customer</option>
+                      <option value="employee">👨‍🍳 Employee</option>
+                      <option value="owner">👑 Owner</option>
+                    </select>
+                  </div>
                 </div>
-                {isSignUp && (
-                  <p className="role-note">
-                    ℹ️ Only Customer accounts can be created here. 
-                    Employee accounts are created by the Owner.
-                  </p>
-                )}
-              </div>
+              )}
+
+              {/* Sign Up Note - Only show during Sign Up */}
+              {isSignUp && (
+                <div className="signup-note">
+                  <span className="note-icon">ℹ️</span>
+                  <p>By creating an account, you'll be registered as a <strong>Customer</strong>. 
+                  Employee and Owner accounts are managed by the system administrator.</p>
+                </div>
+              )}
 
               {error && (
                 <div className="error-message">
@@ -253,7 +274,7 @@ const Login = ({ onLogin }) => {
                   </span>
                 ) : (
                   <span>
-                    {isSignUp ? '✨ Create Account' : '🍽️ Sign In'}
+                    {isSignUp ? '✨ Create Account' : '☕ Sign In'}
                   </span>
                 )}
               </button>
@@ -266,31 +287,28 @@ const Login = ({ onLogin }) => {
                   setIsSignUp(!isSignUp);
                   setError('');
                   setSuccessMessage('');
+                  // Reset role to customer when switching to sign up
+                  if (!isSignUp) {
+                    setRole('customer');
+                  }
                 }}
               >
                 {isSignUp ? (
                   <span>Already have an account? <strong>Sign In</strong></span>
                 ) : (
-                  <span>New to Bombshelter? <strong>Create Account</strong></span>
+                  <span>New to 1of1 Coffee? <strong>Create Account</strong></span>
                 )}
               </button>
             </div>
           </div>
         </div>
 
-        {/* Decorative right side - Food Art */}
+        {/* Decorative right side - Coffee Art */}
         <div className="login-art">
           <div className="art-content">
-            <div className="art-icon-grid">
-              <span className="art-food-icon">🍔</span>
-              <span className="art-food-icon">🍕</span>
-              <span className="art-food-icon">🌮</span>
-              <span className="art-food-icon">🍣</span>
-              <span className="art-food-icon">🥗</span>
-              <span className="art-food-icon">🍝</span>
-            </div>
-            <h3>Order Anything</h3>
-            <p>From burgers to sushi, we've got you covered</p>
+            <div className="art-icon">☕</div>
+            <h3>Fresh Brewed</h3>
+            <p>Every cup tells a story</p>
             <div className="art-decoration">
               <span className="art-line"></span>
               <span className="art-dot">●</span>
@@ -299,30 +317,15 @@ const Login = ({ onLogin }) => {
             <div className="art-features">
               <div className="art-feature">
                 <span>✦</span>
-                <span>Wide Variety</span>
+                <span>Premium Beans</span>
               </div>
               <div className="art-feature">
                 <span>✦</span>
-                <span>Quick Delivery</span>
+                <span>Expertly Roasted</span>
               </div>
               <div className="art-feature">
                 <span>✦</span>
-                <span>Best Quality</span>
-              </div>
-              <div className="art-feature">
-                <span>✦</span>
-                <span>Affordable Prices</span>
-              </div>
-            </div>
-            <div className="art-order-stats">
-              <div className="stat-item">
-                <span className="stat-number">50+</span>
-                <span className="stat-label">Food Items</span>
-              </div>
-              <div className="stat-divider"></div>
-              <div className="stat-item">
-                <span className="stat-number">1000+</span>
-                <span className="stat-label">Happy Customers</span>
+                <span>Perfectly Brewed</span>
               </div>
             </div>
           </div>

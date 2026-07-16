@@ -4,6 +4,11 @@ import { useMenuItems, useOrders, useReviews, useEmployees } from '../hooks/useS
 import { initStorage, uploadImage as uploadImageUtil, deleteImage as deleteImageUtil, testDirectBucketAccess } from '../utils/storage';
 import './OwnerDashboard.css';
 
+// Import logo
+import logo from '../assets/logo.jpg'; // If in src/assets/
+// OR if in public folder:
+// const logo = '/logo.png';
+
 // Icons
 const LogOutIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -732,9 +737,13 @@ function OwnerDashboard({ user, onLogout }) {
       <header className="dashboard-header">
         <div className="header-left">
           <div className="brand-logo">
-            <span className="logo-icon">👑</span>
+            <img 
+              src={logo} 
+              alt="1of1 Coffee" 
+              className="brand-logo-image"
+            />
             <div className="brand-text">
-              <h1>Bombshelter</h1>
+              <h1>1of1 Coffee</h1>
               <span className="brand-subtitle">Owner Dashboard</span>
             </div>
           </div>
@@ -833,7 +842,7 @@ function OwnerDashboard({ user, onLogout }) {
       )}
 
       {storageInitialized && bucketExists && (
-        <div className="storage-success">
+        <div className="">
           {/* ✅ Storage bucket "product-images" is ready */}
         </div>
       )}

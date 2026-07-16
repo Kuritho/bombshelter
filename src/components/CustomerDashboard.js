@@ -3,6 +3,11 @@ import { supabase } from '../supabaseClient';
 import { useMenuItems, useOrders } from '../hooks/useSupabase';
 import './CustomerDashboard.css';
 
+// Import logo - adjust path based on where you placed it
+import logo from '../assets/logo.jpg'; // If in src/assets/
+// OR if in public folder:
+// const logo = '/logo.png';
+
 // Icons
 const ShoppingCartIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -66,9 +71,20 @@ const EditIcon = () => (
   </svg>
 );
 
+const CoffeeIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M18 8h1a4 4 0 0 1 0 8h-1"/>
+    <path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/>
+    <line x1="6" y1="1" x2="6" y2="4"/>
+    <line x1="10" y1="1" x2="10" y2="4"/>
+    <line x1="14" y1="1" x2="14" y2="4"/>
+  </svg>
+);
+
 function CustomerDashboard({ user, onLogout }) {
   const [activeTab, setActiveTab] = useState('menu');
   const [cart, setCart] = useState([]);
+  const [orderType, setOrderType] = useState('dine-in');
   const [gcashProof, setGcashProof] = useState(null);
   const [gcashProofPreview, setGcashProofPreview] = useState(null);
   const [reviewForm, setReviewForm] = useState({ orderId: null, rating: 5, text: '' });
@@ -207,8 +223,8 @@ function CustomerDashboard({ user, onLogout }) {
         customer_id: user.id,
         status: 'pending',
         payment_status: 'unverified',
-        total_amount: cartTotal + 50,
-        delivery_fee: 50,
+        total_amount: cartTotal,
+        order_type: orderType,
         proof_image_url: proofImageUrl
       };
 
@@ -295,7 +311,6 @@ function CustomerDashboard({ user, onLogout }) {
     setProfileSuccess('');
 
     try {
-      // Update user profile in the users table
       const { error: updateError } = await supabase
         .from('users')
         .update({ name: profile.name })
@@ -306,7 +321,6 @@ function CustomerDashboard({ user, onLogout }) {
       setProfileSuccess('✅ Profile updated successfully!');
       setIsEditingProfile(false);
       
-      // Update the user object
       user.name = profile.name;
       
       setTimeout(() => setProfileSuccess(''), 3000);
@@ -324,7 +338,6 @@ function CustomerDashboard({ user, onLogout }) {
     setProfileError('');
     setProfileSuccess('');
 
-    // Validate passwords
     if (passwordData.newPassword !== passwordData.confirmPassword) {
       setProfileError('New passwords do not match');
       setProfileLoading(false);
@@ -338,7 +351,6 @@ function CustomerDashboard({ user, onLogout }) {
     }
 
     try {
-      // Update password using Supabase Auth
       const { error: passwordError } = await supabase.auth.updateUser({
         password: passwordData.newPassword
       });
@@ -365,7 +377,7 @@ function CustomerDashboard({ user, onLogout }) {
     return (
       <div className="loading-screen">
         <div className="loading-spinner"></div>
-        <p>Loading delicious menu...</p>
+        <p>Loading our coffee menu...</p>
       </div>
     );
   }
@@ -384,10 +396,14 @@ function CustomerDashboard({ user, onLogout }) {
       <header className="dashboard-header">
         <div className="header-left">
           <div className="brand-logo">
-            <span className="logo-icon">🍽️</span>
+            <img 
+              src={logo} 
+              alt="1of1 Coffee" 
+              className="brand-logo-image"
+            />
             <div className="brand-text">
-              <h1>Bombshelter</h1>
-              <span className="brand-subtitle">Ordering System</span>
+              <h1>1of1 Coffee</h1>
+              <span className="brand-subtitle">Bombshelter Ordering</span>
             </div>
           </div>
         </div>
@@ -408,7 +424,7 @@ function CustomerDashboard({ user, onLogout }) {
           className={`nav-tab ${activeTab === 'menu' ? 'active' : ''}`}
           onClick={() => setActiveTab('menu')}
         >
-          <MenuIcon />
+          <CoffeeIcon />
           <span>Menu</span>
         </button>
         <button 
@@ -448,12 +464,12 @@ function CustomerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* MENU VIEW */}
+      {/* MENU VIEW - Same as before */}
       {activeTab === 'menu' && (
         <div className="menu-view">
           <div className="menu-header-section">
-            <h2>Our Menu</h2>
-            <p className="menu-subtitle">Choose from our delicious selection</p>
+            <h2>Our Coffee Menu</h2>
+            <p className="menu-subtitle">Handcrafted with love, brewed to perfection</p>
           </div>
           <div className="menu-grid">
             {menuItems.map(item => (
@@ -478,17 +494,17 @@ function CustomerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* CART VIEW */}
+      {/* CART VIEW - Same as before */}
       {activeTab === 'cart' && (
         <div className="cart-view">
           <div className="cart-container">
             <div className="cart-items-section">
-              <h2>Your Cart</h2>
+              <h2>Your Order</h2>
               {cart.length === 0 ? (
                 <div className="empty-state">
-                  <div className="empty-icon">🛒</div>
+                  <div className="empty-icon">☕</div>
                   <h3>Your cart is empty</h3>
-                  <p>Browse our menu and add your favorites!</p>
+                  <p>Browse our coffee menu and add your favorites!</p>
                   <button className="browse-menu-btn" onClick={() => setActiveTab('menu')}>
                     Browse Menu
                   </button>
@@ -519,25 +535,40 @@ function CustomerDashboard({ user, onLogout }) {
             {cart.length > 0 && (
               <div className="checkout-panel">
                 <h2>Order Summary</h2>
+                
+                <div className="order-type-selector">
+                  <label>Order Type</label>
+                  <div className="order-type-options">
+                    <button 
+                      className={`order-type-btn ${orderType === 'dine-in' ? 'active' : ''}`}
+                      onClick={() => setOrderType('dine-in')}
+                    >
+                      🍽️ Dine In
+                    </button>
+                    <button 
+                      className={`order-type-btn ${orderType === 'takeout' ? 'active' : ''}`}
+                      onClick={() => setOrderType('takeout')}
+                    >
+                      📦 Takeout
+                    </button>
+                  </div>
+                </div>
+
                 <div className="checkout-summary">
                   <div className="checkout-summary-row">
                     <span>Subtotal</span>
                     <span>₱{cartTotal}</span>
                   </div>
-                  <div className="checkout-summary-row">
-                    <span>Delivery Fee</span>
-                    <span>₱50</span>
-                  </div>
                   <div className="checkout-total">
                     <span>Total</span>
-                    <span>₱{cartTotal > 0 ? cartTotal + 50 : 0}</span>
+                    <span>₱{cartTotal}</span>
                   </div>
                 </div>
 
                 <div className="gcash-upload">
                   <label>GCash Payment Proof</label>
                   <p className="gcash-instructions">
-                    Send exactly <strong>₱{cartTotal + 50}</strong> to <strong>0912 345 6789</strong> and upload the screenshot
+                    Send exactly <strong>₱{cartTotal}</strong> to <strong>0912 345 6789</strong> and upload the screenshot
                   </p>
                   {gcashProofPreview ? (
                     <div className="proof-preview">
@@ -589,7 +620,7 @@ function CustomerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* ORDERS & REVIEWS VIEW */}
+      {/* ORDERS & REVIEWS VIEW - Same as before */}
       {activeTab === 'orders' && (
         <div className="orders-view">
           <div className="orders-header">
@@ -600,7 +631,7 @@ function CustomerDashboard({ user, onLogout }) {
             <div className="empty-state">
               <div className="empty-icon">📝</div>
               <h3>No orders yet</h3>
-              <p>Start ordering your favorite food!</p>
+              <p>Start ordering your favorite coffee!</p>
               <button className="browse-menu-btn" onClick={() => setActiveTab('menu')}>
                 Browse Menu
               </button>
@@ -622,12 +653,17 @@ function CustomerDashboard({ user, onLogout }) {
                         })}
                       </span>
                     </div>
-                    <span className={`order-status ${order.status}`}>
-                      {order.status === 'pending' && '⏳ Pending'}
-                      {order.status === 'processing' && '🔄 Processing'}
-                      {order.status === 'completed' && '✅ Completed'}
-                      {order.status === 'cancelled' && '❌ Cancelled'}
-                    </span>
+                    <div className="order-badges">
+                      <span className={`order-type-badge ${order.order_type || 'dine-in'}`}>
+                        {order.order_type === 'takeout' ? '📦 Takeout' : '🍽️ Dine In'}
+                      </span>
+                      <span className={`order-status ${order.status}`}>
+                        {order.status === 'pending' && '⏳ Pending'}
+                        {order.status === 'processing' && '🔄 Processing'}
+                        {order.status === 'completed' && '✅ Completed'}
+                        {order.status === 'cancelled' && '❌ Cancelled'}
+                      </span>
+                    </div>
                   </div>
                   
                   <div className="order-items-summary">
@@ -669,7 +705,7 @@ function CustomerDashboard({ user, onLogout }) {
                       </div>
                       <textarea 
                         className="review-input"
-                        placeholder="Would you recommend this? Share your thoughts..."
+                        placeholder="Would you recommend this coffee? Share your thoughts..."
                         maxLength={300}
                         value={reviewForm.text}
                         onChange={(e) => setReviewForm({...reviewForm, text: e.target.value})}
@@ -704,13 +740,13 @@ function CustomerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* PROFILE VIEW */}
+      {/* PROFILE VIEW - Same as before */}
       {activeTab === 'profile' && (
         <div className="profile-view">
           <div className="profile-container">
             <div className="profile-header">
               <div className="profile-avatar">
-                <span className="avatar-icon">👤</span>
+                <span className="avatar-icon">☕</span>
               </div>
               <div className="profile-title">
                 <h2>My Profile</h2>
@@ -733,7 +769,6 @@ function CustomerDashboard({ user, onLogout }) {
             )}
 
             <div className="profile-grid">
-              {/* Profile Information */}
               <div className="profile-card">
                 <div className="profile-card-header">
                   <h3>
@@ -820,7 +855,6 @@ function CustomerDashboard({ user, onLogout }) {
                 )}
               </div>
 
-              {/* Change Password */}
               <div className="profile-card">
                 <div className="profile-card-header">
                   <h3>
