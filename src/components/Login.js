@@ -78,19 +78,31 @@ const Login = ({ onLogin }) => {
 
             if (insertError) {
               console.error('Insert error:', insertError);
-              throw new Error('Account created but couldn\'t create profile. Please try signing in.');
+              // Check if it's a duplicate key error (profile already exists)
+              if (insertError.code === '23505') { // PostgreSQL unique violation
+                setSuccessMessage('✅ Account already exists! Please check your email for confirmation and try signing in.');
+                setLoading(false);
+                return;
+              }
+              // Check if it's a foreign key violation or other error
+              setSuccessMessage('📧 Account created! Please check your email for confirmation, then sign in.');
+              setLoading(false);
+              return;
             }
 
             if (newUser) {
               console.log('Profile created successfully:', newUser);
-              onLogin(signUpRole, newUser);
-              setSuccessMessage('Account created successfully! Logging you in...');
+              setSuccessMessage('✅ Account created successfully! Please check your email for confirmation, then sign in.');
+              setLoading(false);
+              // Don't auto-login, let user confirm email first
+              return;
             }
           } else {
             // Profile already exists
             console.log('Profile already exists:', existingUser);
-            onLogin(signUpRole, existingUser);
-            setSuccessMessage('Account created successfully! Logging you in...');
+            setSuccessMessage('✅ Welcome back! Please check your email for confirmation, then sign in.');
+            setLoading(false);
+            return;
           }
         }
       } else {

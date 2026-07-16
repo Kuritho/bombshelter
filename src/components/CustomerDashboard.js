@@ -468,7 +468,7 @@ function CustomerDashboard({ user, onLogout }) {
       {activeTab === 'menu' && (
         <div className="menu-view">
           <div className="menu-header-section">
-            <h2>Our Coffee Menu</h2>
+            <h2>Our Menu</h2>
             <p className="menu-subtitle">Handcrafted with love, brewed to perfection</p>
           </div>
           <div className="menu-grid">
