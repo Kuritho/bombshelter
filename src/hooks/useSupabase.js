@@ -106,6 +106,11 @@ export const useOrders = (customerId = null) => {
         .from('orders')
         .select(`
           *,
+          users!inner (
+            id,
+            name,
+            email
+          ),
           order_items (
             *,
             menu_items (*)

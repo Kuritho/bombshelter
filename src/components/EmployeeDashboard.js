@@ -118,7 +118,7 @@ function EmployeeDashboard({ user, onLogout }) {
         },
         (payload) => {
           setNotificationType('success');
-          setNotification(`📦 New Order Received: ${payload.new.order_number || payload.new.id.slice(0, 8)}`);
+          setNotification(`📦 New Order Received from ${payload.new.users?.name || 'Customer'}`);
           refresh();
           setTimeout(() => setNotification(null), 5000);
         }
@@ -239,26 +239,6 @@ function EmployeeDashboard({ user, onLogout }) {
       setTimeout(() => setNotification(null), 3000);
     } catch (error) {
       alert('Failed to update order status');
-    }
-  };
-
-  const getStatusIcon = (status) => {
-    switch(status) {
-      case 'pending': return <ClockIcon />;
-      case 'preparing': return <PackageIcon />;
-      case 'completed': return <CheckIcon />;
-      case 'declined': return <XIcon />;
-      default: return <OrdersIcon />;
-    }
-  };
-
-  const getStatusColor = (status) => {
-    switch(status) {
-      case 'pending': return '#fbbf24';
-      case 'preparing': return '#60a5fa';
-      case 'completed': return '#34d399';
-      case 'declined': return '#f87171';
-      default: return '#94a3b8';
     }
   };
 
@@ -521,7 +501,14 @@ function EmployeeDashboard({ user, onLogout }) {
                       </div>
                       <div className="detail-row">
                         <span className="detail-label">Customer</span>
-                        <span className="detail-value">{selectedOrder.users?.name || 'Guest'}</span>
+                        <span className="detail-value">
+                          <strong>{selectedOrder.users?.name || 'Guest'}</strong>
+                          {selectedOrder.users?.email && (
+                            <span style={{color: '#94a3b8', fontSize: '0.85rem', marginLeft: '0.5rem'}}>
+                              ({selectedOrder.users.email})
+                            </span>
+                          )}
+                        </span>
                       </div>
                       <div className="detail-row">
                         <span className="detail-label">Ordered</span>

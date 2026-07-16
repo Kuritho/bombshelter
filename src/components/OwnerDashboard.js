@@ -991,13 +991,18 @@ function OwnerDashboard({ user, onLogout }) {
                   </div>
                   
                   <div className="order-footer">
-                    <span className="customer-name">
-                      👤 {order.users?.name || 'Guest'}
-                    </span>
-                    <span className="payment-method">
-                      {order.payment_status || 'Pending'}
-                    </span>
-                  </div>
+  <span className="customer-name">
+    👤 {order.users?.name || 'Guest'}
+    {order.users?.email && (
+      <span style={{color: '#64748b', fontSize: '0.75rem', marginLeft: '0.5rem'}}>
+        ({order.users.email})
+      </span>
+    )}
+  </span>
+  <span className="payment-method">
+    {order.payment_status || 'Pending'}
+  </span>
+</div>
                 </div>
               ))
             )}
