@@ -1,161 +1,334 @@
 import React, { useState, useEffect } from 'react';
+import { supabase } from '../supabaseClient';
+import { useOrders } from '../hooks/useSupabase';
 import './EmployeeDashboard.css';
 
-const MOCK_ORDERS = [
-  {
-    id: 'ORD-1042',
-    time: '10:45 AM',
-    customer: 'Alice Smith',
-    items: [
-      { name: 'Caramel Macchiato', qty: 2, price: 150 },
-      { name: 'Blueberry Muffin', qty: 1, price: 90 }
-    ],
-    total: 440, // (2*150 + 90) + 50 delivery
-    status: 'pending',
-    paymentStatus: 'unverified',
-    proofImage: 'https://images.unsplash.com/photo-1610992015732-2449b0c26670?auto=format&fit=crop&q=80&w=600' // Mock receipt/proof
-  },
-  {
-    id: 'ORD-1043',
-    time: '11:10 AM',
-    customer: 'Bob Johnson',
-    items: [
-      { name: 'Iced Americano', qty: 1, price: 120 },
-      { name: 'Avocado Toast', qty: 1, price: 180 }
-    ],
-    total: 350,
-    status: 'preparing',
-    paymentStatus: 'valid',
-    proofImage: 'https://images.unsplash.com/photo-1610992015732-2449b0c26670?auto=format&fit=crop&q=80&w=600'
-  }
-];
-
+// Icons
 const BellIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+    <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+  </svg>
 );
 
 const LogOutIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+    <polyline points="16 17 21 12 16 7"/>
+    <line x1="21" y1="12" x2="9" y2="12"/>
+  </svg>
+);
+
+const OrdersIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>
+    <line x1="3" y1="6" x2="21" y2="6"/>
+    <path d="M16 10a4 4 0 01-8 0"/>
+  </svg>
+);
+
+const CheckIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="20 6 9 17 4 12"/>
+  </svg>
+);
+
+const ClockIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10"/>
+    <polyline points="12 6 12 12 16 14"/>
+  </svg>
+);
+
+const PackageIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+    <path d="M2 17l10 5 10-5"/>
+    <path d="M2 12l10 5 10-5"/>
+  </svg>
+);
+
+const XIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="18" y1="6" x2="6" y2="18"/>
+    <line x1="6" y1="6" x2="18" y2="18"/>
+  </svg>
 );
 
 function EmployeeDashboard({ user, onLogout }) {
-  const [orders, setOrders] = useState(MOCK_ORDERS);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [notification, setNotification] = useState(null);
+  const [notificationType, setNotificationType] = useState('info');
+  const { orders, updateOrderStatus, updatePaymentStatus, refresh } = useOrders();
 
-  // Simulate receiving a new order via WebSocket/Polling
-  const simulateNewOrder = () => {
-    const newId = `ORD-${Math.floor(1000 + Math.random() * 9000)}`;
-    const newOrder = {
-      id: newId,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      customer: 'New Customer',
-      items: [{ name: 'Matcha Latte', qty: 1, price: 160 }],
-      total: 210,
-      status: 'pending',
-      paymentStatus: 'unverified',
-      proofImage: 'https://images.unsplash.com/photo-1610992015732-2449b0c26670?auto=format&fit=crop&q=80&w=600'
+  // Real-time subscription for new orders
+  useEffect(() => {
+    const subscription = supabase
+      .channel('orders-channel')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'orders'
+        },
+        (payload) => {
+          setNotificationType('success');
+          setNotification(`📦 New Order Received: ${payload.new.order_number || payload.new.id.slice(0, 8)}`);
+          refresh();
+          setTimeout(() => setNotification(null), 5000);
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'orders',
+          filter: 'status=eq.pending'
+        },
+        () => {
+          refresh();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
     };
-    
-    setOrders([newOrder, ...orders]);
-    setNotification(`New Order Received: ${newId}`);
-    
-    // Auto-hide notification
-    setTimeout(() => {
-      setNotification(null);
-    }, 4000);
-  };
+  }, [refresh]);
 
-  const handleUpdatePaymentStatus = (orderId, status) => {
-    setOrders(orders.map(o => o.id === orderId ? { ...o, paymentStatus: status } : o));
-    if (selectedOrder && selectedOrder.id === orderId) {
-      setSelectedOrder({ ...selectedOrder, paymentStatus: status });
+  const handleUpdatePaymentStatus = async (orderId, status) => {
+    try {
+      await updatePaymentStatus(orderId, status);
+      if (selectedOrder && selectedOrder.id === orderId) {
+        setSelectedOrder({ ...selectedOrder, payment_status: status });
+      }
+      refresh();
+      
+      // Show notification
+      setNotificationType('info');
+      setNotification(`💳 Payment status updated to: ${status}`);
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      alert('Failed to update payment status');
     }
   };
 
-  const handleUpdateOrderStatus = (orderId, newStatus) => {
-    setOrders(orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
-    setSelectedOrder(null); // Close modal
+  const handleUpdateOrderStatus = async (orderId, newStatus) => {
+    try {
+      await updateOrderStatus(orderId, newStatus);
+      setSelectedOrder(null);
+      refresh();
+      
+      // Show notification
+      setNotificationType('success');
+      setNotification(`✅ Order status updated to: ${newStatus}`);
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      alert('Failed to update order status');
+    }
+  };
+
+  const getStatusIcon = (status) => {
+    switch(status) {
+      case 'pending': return <ClockIcon />;
+      case 'preparing': return <PackageIcon />;
+      case 'completed': return <CheckIcon />;
+      case 'declined': return <XIcon />;
+      default: return <OrdersIcon />;
+    }
+  };
+
+  const getStatusColor = (status) => {
+    switch(status) {
+      case 'pending': return '#fbbf24';
+      case 'preparing': return '#60a5fa';
+      case 'completed': return '#34d399';
+      case 'declined': return '#f87171';
+      default: return '#94a3b8';
+    }
+  };
+
+  const getOrderCount = (status) => {
+    return orders.filter(o => o.status === status).length;
   };
 
   const renderOrderCard = (order) => (
     <div key={order.id} className="order-card" onClick={() => setSelectedOrder(order)}>
       <div className="order-card-header">
-        <span className="order-id">{order.id}</span>
-        <span className="order-time">{order.time}</span>
+        <span className="order-id">#{order.order_number || order.id.slice(0, 8)}</span>
+        <span className="order-time">{new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
       </div>
-      <div className="customer-name">{order.customer}</div>
+      <div className="customer-name">
+        <span className="customer-icon">👤</span>
+        {order.users?.name || 'Guest'}
+      </div>
       <div className="order-items-preview">
-        {order.items.map(i => `${i.qty}x ${i.name}`).join(', ')}
+        {order.order_items?.slice(0, 3).map((item, idx) => (
+          <span key={idx} className="item-tag">
+            {item.quantity}x {item.menu_items?.name || 'Item'}
+          </span>
+        ))}
+        {order.order_items?.length > 3 && (
+          <span className="item-tag more">+{order.order_items.length - 3} more</span>
+        )}
       </div>
-      <div className={`payment-status-badge ${order.paymentStatus}`}>
-        Payment: {order.paymentStatus}
+      <div className="order-card-footer">
+        <span className="order-total">₱{order.total_amount}</span>
+        <span className={`payment-status-badge ${order.payment_status}`}>
+          {order.payment_status === 'valid' && '✅ Verified'}
+          {order.payment_status === 'unverified' && '⏳ Pending'}
+          {order.payment_status === 'underpayment' && '⚠️ Underpaid'}
+          {order.payment_status === 'overpayment' && '⚠️ Overpaid'}
+        </span>
       </div>
     </div>
   );
 
   return (
     <div className="employee-dashboard">
+      {/* Notification Toast */}
       {notification && (
-        <div className="notification-toast">
-          <BellIcon />
-          <span>{notification}</span>
+        <div className={`notification-toast ${notificationType}`}>
+          <span className="notification-icon">
+            {notificationType === 'success' ? '✅' : notificationType === 'info' ? 'ℹ️' : '🔔'}
+          </span>
+          <span className="notification-message">{notification}</span>
+          <button className="notification-close" onClick={() => setNotification(null)}>×</button>
         </div>
       )}
 
+      {/* Header */}
       <header className="dashboard-header">
-        <div className="header-title-area">
-          <h1>Employee Portal</h1>
-          <button className="simulate-btn" onClick={simulateNewOrder}>
-            <BellIcon /> Simulate New Order
-          </button>
-          <button className="simulate-btn" style={{ background: '#f59e0b' }} onClick={() => {
-            const pwd = prompt("Enter Owner Password:");
-            if (pwd === 'admin123') {
-              localStorage.setItem('userRole', 'owner');
-              window.location.href = '/owner';
-            } else if (pwd !== null) {
-              alert("Incorrect Password!");
-            }
-          }}>
-            Owner Dashboard
-          </button>
+        <div className="header-left">
+          <div className="brand-logo">
+            <span className="logo-icon">👨‍🍳</span>
+            <div className="brand-text">
+              <h1>Bombshelter</h1>
+              <span className="brand-subtitle">Employee Portal</span>
+            </div>
+          </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-          <span style={{ color: '#cbd5e1' }}>Hello, {user?.name || 'Staff'}</span>
-          <button className="logout-btn" onClick={onLogout} style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)', padding: '0.5rem 1rem', borderRadius: '8px', cursor: 'pointer' }}>
+        <div className="header-right">
+          <div className="user-info">
+            <span className="user-avatar">👤</span>
+            <span className="user-name">{user?.name || 'Staff'}</span>
+          </div>
+          <button className="logout-btn" onClick={onLogout}>
             <LogOutIcon /> Logout
           </button>
         </div>
       </header>
 
+      {/* Stats Overview */}
+      <div className="stats-overview">
+        <div className="stat-card pending-stat">
+          <div className="stat-icon">⏳</div>
+          <div className="stat-info">
+            <span className="stat-number">{getOrderCount('pending')}</span>
+            <span className="stat-label">Pending</span>
+          </div>
+        </div>
+        <div className="stat-card preparing-stat">
+          <div className="stat-icon">📦</div>
+          <div className="stat-info">
+            <span className="stat-number">{getOrderCount('preparing')}</span>
+            <span className="stat-label">Preparing</span>
+          </div>
+        </div>
+        <div className="stat-card completed-stat">
+          <div className="stat-icon">✅</div>
+          <div className="stat-info">
+            <span className="stat-number">{getOrderCount('completed')}</span>
+            <span className="stat-label">Completed</span>
+          </div>
+        </div>
+        <div className="stat-card declined-stat">
+          <div className="stat-icon">❌</div>
+          <div className="stat-info">
+            <span className="stat-number">{getOrderCount('declined')}</span>
+            <span className="stat-label">Declined</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Kanban Board */}
       <div className="kanban-board">
         <div className="kanban-column">
           <div className="column-header pending">
-            Pending Orders <span className="order-count">{orders.filter(o => o.status === 'pending').length}</span>
+            <span className="column-title">
+              <ClockIcon /> Pending
+            </span>
+            <span className="order-count">{getOrderCount('pending')}</span>
           </div>
-          {orders.filter(o => o.status === 'pending').map(renderOrderCard)}
+          <div className="column-content">
+            {orders.filter(o => o.status === 'pending').length === 0 ? (
+              <div className="empty-column">
+                <span className="empty-icon">✅</span>
+                <p>No pending orders</p>
+              </div>
+            ) : (
+              orders.filter(o => o.status === 'pending').map(renderOrderCard)
+            )}
+          </div>
         </div>
 
         <div className="kanban-column">
           <div className="column-header preparing">
-            Preparing <span className="order-count">{orders.filter(o => o.status === 'preparing').length}</span>
+            <span className="column-title">
+              <PackageIcon /> Preparing
+            </span>
+            <span className="order-count">{getOrderCount('preparing')}</span>
           </div>
-          {orders.filter(o => o.status === 'preparing').map(renderOrderCard)}
+          <div className="column-content">
+            {orders.filter(o => o.status === 'preparing').length === 0 ? (
+              <div className="empty-column">
+                <span className="empty-icon">📦</span>
+                <p>No orders preparing</p>
+              </div>
+            ) : (
+              orders.filter(o => o.status === 'preparing').map(renderOrderCard)
+            )}
+          </div>
         </div>
 
         <div className="kanban-column">
           <div className="column-header completed">
-            Completed <span className="order-count">{orders.filter(o => o.status === 'completed').length}</span>
+            <span className="column-title">
+              <CheckIcon /> Completed
+            </span>
+            <span className="order-count">{getOrderCount('completed')}</span>
           </div>
-          {orders.filter(o => o.status === 'completed').map(renderOrderCard)}
+          <div className="column-content">
+            {orders.filter(o => o.status === 'completed').length === 0 ? (
+              <div className="empty-column">
+                <span className="empty-icon">📋</span>
+                <p>No completed orders</p>
+              </div>
+            ) : (
+              orders.filter(o => o.status === 'completed').map(renderOrderCard)
+            )}
+          </div>
         </div>
 
         <div className="kanban-column">
-          <div className="column-header declined" style={{ borderBottomColor: '#ef4444' }}>
-            Declined <span className="order-count">{orders.filter(o => o.status === 'declined').length}</span>
+          <div className="column-header declined">
+            <span className="column-title">
+              <XIcon /> Declined
+            </span>
+            <span className="order-count">{getOrderCount('declined')}</span>
           </div>
-          {orders.filter(o => o.status === 'declined').map(renderOrderCard)}
+          <div className="column-content">
+            {orders.filter(o => o.status === 'declined').length === 0 ? (
+              <div className="empty-column">
+                <span className="empty-icon">👍</span>
+                <p>No declined orders</p>
+              </div>
+            ) : (
+              orders.filter(o => o.status === 'declined').map(renderOrderCard)
+            )}
+          </div>
         </div>
       </div>
 
@@ -164,95 +337,171 @@ function EmployeeDashboard({ user, onLogout }) {
         <div className="modal-overlay" onClick={() => setSelectedOrder(null)}>
           <div className="modal-content" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>Order Details: {selectedOrder.id}</h2>
-              <button className="close-btn" onClick={() => setSelectedOrder(null)}>&times;</button>
+              <div className="modal-title">
+                <span className="modal-icon">📋</span>
+                <h2>Order Details</h2>
+              </div>
+              <button className="close-btn" onClick={() => setSelectedOrder(null)}>×</button>
             </div>
             
-            <div className="modal-body-left">
-              <div className="detail-section">
-                <h3>Customer Info</h3>
-                <p style={{ color: 'white', margin: '0 0 1rem 0' }}>{selectedOrder.customer}</p>
-                <p style={{ color: '#94a3b8', margin: 0 }}>Ordered at: {selectedOrder.time}</p>
-              </div>
-
-              <div className="detail-section">
-                <h3>Order Items</h3>
-                {selectedOrder.items.map((item, idx) => (
-                  <div key={idx} className="item-row">
-                    <span style={{ color: '#cbd5e1' }}>{item.qty}x {item.name}</span>
-                    <span style={{ color: 'white' }}>₱{item.price * item.qty}</span>
+            <div className="modal-body">
+              <div className="modal-body-left">
+                {/* Order Info */}
+                <div className="detail-section">
+                  <div className="section-header">
+                    <span className="section-icon">📄</span>
+                    <h3>Order Information</h3>
                   </div>
-                ))}
-                <div className="item-row" style={{ borderBottom: 'none' }}>
-                  <span style={{ color: '#94a3b8' }}>Delivery Fee</span>
-                  <span style={{ color: 'white' }}>₱50</span>
-                </div>
-                <div className="total-row">
-                  <span>Total</span>
-                  <span style={{ color: '#f59e0b' }}>₱{selectedOrder.total}</span>
-                </div>
-              </div>
-
-              <div className="detail-section" style={{ marginTop: '2rem' }}>
-                <h3>Order Actions</h3>
-                {selectedOrder.status === 'pending' && (
-                  <div style={{ display: 'flex', gap: '1rem' }}>
-                    <button 
-                      className="btn btn-primary"
-                      disabled={selectedOrder.paymentStatus !== 'valid'}
-                      onClick={() => handleUpdateOrderStatus(selectedOrder.id, 'preparing')}
-                    >
-                      Start Preparing
-                    </button>
-                    <button 
-                      className="btn"
-                      onClick={() => {
-                        if (window.confirm("Are you sure you want to decline this order?")) {
-                          handleUpdateOrderStatus(selectedOrder.id, 'declined');
-                        }
-                      }}
-                      style={{ background: '#ef4444', color: 'white' }}
-                    >
-                      Decline Order
-                    </button>
+                  <div className="detail-row">
+                    <span className="detail-label">Order #</span>
+                    <span className="detail-value">{selectedOrder.order_number || selectedOrder.id.slice(0, 8)}</span>
                   </div>
-                )}
-                {selectedOrder.status === 'preparing' && (
-                  <button 
-                    className="btn btn-primary"
-                    onClick={() => handleUpdateOrderStatus(selectedOrder.id, 'completed')}
-                  >
-                    Mark as Completed
-                  </button>
-                )}
-                {selectedOrder.status === 'completed' && (
-                  <p style={{ color: '#10b981', fontWeight: 'bold' }}>✓ This order is completed.</p>
-                )}
-                {selectedOrder.status === 'declined' && (
-                  <p style={{ color: '#ef4444', fontWeight: 'bold' }}>✗ This order was declined.</p>
-                )}
-                
-                {selectedOrder.status === 'pending' && selectedOrder.paymentStatus !== 'valid' && (
-                  <p style={{ color: '#ef4444', fontSize: '0.85rem', marginTop: '0.5rem' }}>
-                    Payment must be verified as Valid before preparing.
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <div className="modal-body-right">
-              <div className="detail-section">
-                <h3>Payment Verification</h3>
-                <div style={{ marginBottom: '1rem', color: '#cbd5e1' }}>
-                  Current Status: <span className={`payment-status-badge ${selectedOrder.paymentStatus}`}>{selectedOrder.paymentStatus}</span>
+                  <div className="detail-row">
+                    <span className="detail-label">Status</span>
+                    <span className={`order-status-badge ${selectedOrder.status}`}>
+                      {selectedOrder.status}
+                    </span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">Payment</span>
+                    <span className={`payment-status-badge ${selectedOrder.payment_status}`}>
+                      {selectedOrder.payment_status}
+                    </span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">Customer</span>
+                    <span className="detail-value">{selectedOrder.users?.name || 'Guest'}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">Ordered</span>
+                    <span className="detail-value">{new Date(selectedOrder.created_at).toLocaleString()}</span>
+                  </div>
                 </div>
-                
-                <img src={selectedOrder.proofImage} alt="Payment Proof" className="proof-image" />
-                
-                <div className="action-buttons">
-                  <button className="btn btn-valid" onClick={() => handleUpdatePaymentStatus(selectedOrder.id, 'valid')}>Valid</button>
-                  <button className="btn btn-under" onClick={() => handleUpdatePaymentStatus(selectedOrder.id, 'underpayment')}>Underpaid</button>
-                  <button className="btn btn-over" onClick={() => handleUpdatePaymentStatus(selectedOrder.id, 'overpayment')}>Overpaid</button>
+
+                {/* Order Items */}
+                <div className="detail-section">
+                  <div className="section-header">
+                    <span className="section-icon">🛍️</span>
+                    <h3>Order Items</h3>
+                  </div>
+                  {selectedOrder.order_items?.map((item, idx) => (
+                    <div key={idx} className="item-row">
+                      <span className="item-name">{item.quantity}x {item.menu_items?.name || 'Item'}</span>
+                      <span className="item-price">₱{item.price_at_time * item.quantity}</span>
+                    </div>
+                  ))}
+                  <div className="item-row subtotal">
+                    <span>Subtotal</span>
+                    <span>₱{selectedOrder.order_items?.reduce((sum, item) => sum + (item.price_at_time * item.quantity), 0) || 0}</span>
+                  </div>
+                  <div className="item-row delivery-fee">
+                    <span>Delivery Fee</span>
+                    <span>₱{selectedOrder.delivery_fee || 50}</span>
+                  </div>
+                  <div className="item-row total">
+                    <span>Total</span>
+                    <span>₱{selectedOrder.total_amount}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="modal-body-right">
+                {/* Payment Proof */}
+                <div className="detail-section">
+                  <div className="section-header">
+                    <span className="section-icon">💳</span>
+                    <h3>Payment Proof</h3>
+                  </div>
+                  {selectedOrder.proof_image_url ? (
+                    <div className="proof-container">
+                      <img src={selectedOrder.proof_image_url} alt="Payment Proof" className="proof-image" />
+                    </div>
+                  ) : (
+                    <div className="proof-placeholder">
+                      <span className="placeholder-icon">📷</span>
+                      <p>No payment proof uploaded</p>
+                    </div>
+                  )}
+                  
+                  <div className="payment-actions">
+                    <h4>Verify Payment</h4>
+                    <div className="action-buttons">
+                      <button 
+                        className="btn btn-valid" 
+                        onClick={() => handleUpdatePaymentStatus(selectedOrder.id, 'valid')}
+                      >
+                        ✅ Valid
+                      </button>
+                      <button 
+                        className="btn btn-under" 
+                        onClick={() => handleUpdatePaymentStatus(selectedOrder.id, 'underpayment')}
+                      >
+                        ⚠️ Underpaid
+                      </button>
+                      <button 
+                        className="btn btn-over" 
+                        onClick={() => handleUpdatePaymentStatus(selectedOrder.id, 'overpayment')}
+                      >
+                        ⚠️ Overpaid
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Order Actions */}
+                <div className="detail-section actions-section">
+                  <div className="section-header">
+                    <span className="section-icon">⚡</span>
+                    <h3>Order Actions</h3>
+                  </div>
+                  {selectedOrder.status === 'pending' && (
+                    <>
+                      <div className="action-warning">
+                        {selectedOrder.payment_status !== 'valid' && (
+                          <p className="warning-text">⚠️ Payment must be verified as Valid before preparing.</p>
+                        )}
+                      </div>
+                      <div className="order-actions">
+                        <button 
+                          className="btn btn-primary"
+                          disabled={selectedOrder.payment_status !== 'valid'}
+                          onClick={() => handleUpdateOrderStatus(selectedOrder.id, 'preparing')}
+                        >
+                          📦 Start Preparing
+                        </button>
+                        <button 
+                          className="btn btn-danger"
+                          onClick={() => {
+                            if (window.confirm("Are you sure you want to decline this order?")) {
+                              handleUpdateOrderStatus(selectedOrder.id, 'declined');
+                            }
+                          }}
+                        >
+                          ❌ Decline Order
+                        </button>
+                      </div>
+                    </>
+                  )}
+                  {selectedOrder.status === 'preparing' && (
+                    <button 
+                      className="btn btn-success"
+                      onClick={() => handleUpdateOrderStatus(selectedOrder.id, 'completed')}
+                    >
+                      ✅ Mark as Completed
+                    </button>
+                  )}
+                  {selectedOrder.status === 'completed' && (
+                    <div className="status-message success">
+                      <span>✅</span>
+                      <p>This order is completed.</p>
+                    </div>
+                  )}
+                  {selectedOrder.status === 'declined' && (
+                    <div className="status-message error">
+                      <span>❌</span>
+                      <p>This order was declined.</p>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
