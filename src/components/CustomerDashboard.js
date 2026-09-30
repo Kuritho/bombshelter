@@ -4,9 +4,7 @@ import { useMenuItems, useOrders } from '../hooks/useSupabase';
 import './CustomerDashboard.css';
 
 // Import logo - adjust path based on where you placed it
-import logo from '../assets/logo.jpg'; // If in src/assets/
-// OR if in public folder:
-// const logo = '/logo.png';
+import logo from '../assets/logo.jpg';
 
 // Icons
 const ShoppingCartIcon = () => (
@@ -81,6 +79,73 @@ const CoffeeIcon = () => (
   </svg>
 );
 
+const WarningIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+    <line x1="12" y1="9" x2="12" y2="13"/>
+    <line x1="12" y1="17" x2="12.01" y2="17"/>
+  </svg>
+);
+
+const XCircleIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10"/>
+    <line x1="15" y1="9" x2="9" y2="15"/>
+    <line x1="9" y1="9" x2="15" y2="15"/>
+  </svg>
+);
+
+// ============================================
+// CONFIRMATION MODAL COMPONENT
+// ============================================
+function ConfirmModal({ 
+  isOpen, 
+  title, 
+  message, 
+  confirmText = 'Yes, Confirm', 
+  cancelText = 'No, Cancel',
+  onConfirm, 
+  onCancel,
+  isLoading = false,
+  variant = 'danger', // 'danger' | 'warning' | 'info'
+  iconType = 'warning' // 'warning' | 'x-circle'
+}) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="confirm-modal-overlay" onClick={onCancel}>
+      <div 
+        className={`confirm-modal-content confirm-modal-${variant}`} 
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="confirm-modal-icon">
+          {iconType === 'x-circle' ? <XCircleIcon /> : <WarningIcon />}
+        </div>
+        
+        <h3 className="confirm-modal-title">{title}</h3>
+        <p className="confirm-modal-message">{message}</p>
+        
+        <div className="confirm-modal-actions">
+          <button 
+            className="confirm-btn confirm-btn-no"
+            onClick={onCancel}
+            disabled={isLoading}
+          >
+            {cancelText}
+          </button>
+          <button 
+            className={`confirm-btn confirm-btn-yes confirm-btn-yes-${variant}`}
+            onClick={onConfirm}
+            disabled={isLoading}
+          >
+            {isLoading ? '⏳ Processing...' : confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CustomerDashboard({ user, onLogout }) {
   const [activeTab, setActiveTab] = useState('menu');
   const [cart, setCart] = useState([]);
@@ -91,6 +156,7 @@ function CustomerDashboard({ user, onLogout }) {
   const [orderLoading, setOrderLoading] = useState(false);
   const [error, setError] = useState(null);
   const [cartNotification, setCartNotification] = useState(null);
+  const [cancellingOrder, setCancellingOrder] = useState(null);
   
   // Profile state
   const [profile, setProfile] = useState({
@@ -106,6 +172,47 @@ function CustomerDashboard({ user, onLogout }) {
   const [profileSuccess, setProfileSuccess] = useState('');
   const [profileError, setProfileError] = useState('');
   const [isEditingProfile, setIsEditingProfile] = useState(false);
+
+  // ============================================
+  // CONFIRMATION MODAL STATE
+  // ============================================
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'Yes, Confirm',
+    cancelText: 'No, Cancel',
+    onConfirm: null,
+    variant: 'danger',
+    iconType: 'warning'
+  });
+
+  // Helper to open confirmation modal
+  const openConfirm = ({ 
+    title, 
+    message, 
+    confirmText, 
+    cancelText, 
+    onConfirm, 
+    variant = 'danger',
+    iconType = 'warning'
+  }) => {
+    setConfirmModal({
+      isOpen: true,
+      title,
+      message,
+      confirmText: confirmText || 'Yes, Confirm',
+      cancelText: cancelText || 'No, Cancel',
+      onConfirm,
+      variant,
+      iconType
+    });
+  };
+
+  // Helper to close confirmation modal
+  const closeConfirm = () => {
+    setConfirmModal(prev => ({ ...prev, isOpen: false, onConfirm: null }));
+  };
   
   const { items: menuItems, loading: menuLoading } = useMenuItems();
   const { orders, createOrder, refresh: refreshOrders } = useOrders(user?.id);
@@ -151,9 +258,82 @@ function CustomerDashboard({ user, onLogout }) {
     setTimeout(() => setCartNotification(null), 2500);
   };
 
+  // ============================================
+  // REMOVE FROM CART (WITH CONFIRMATION)
+  // ============================================
   const removeFromCart = (id) => {
-    setError(null);
-    setCart(cart.filter(item => item.id !== id));
+    const item = cart.find(c => c.id === id);
+    if (!item) return;
+
+    openConfirm({
+      title: 'Remove Item from Cart?',
+      message: `Are you sure you want to remove "${item.name}" from your cart?`,
+      confirmText: 'Yes, Remove',
+      cancelText: 'No, Keep',
+      variant: 'warning',
+      iconType: 'x-circle',
+      onConfirm: () => {
+        closeConfirm();
+        setError(null);
+        setCart(cart.filter(cartItem => cartItem.id !== id));
+        setCartNotification(`Removed ${item.name} from cart`);
+        setTimeout(() => setCartNotification(null), 2500);
+      }
+    });
+  };
+
+  // ============================================
+  // CLEAR ENTIRE CART (WITH CONFIRMATION)
+  // ============================================
+  const clearCart = () => {
+    openConfirm({
+      title: 'Clear Entire Cart?',
+      message: `Are you sure you want to remove all ${cartItemCount} item(s) from your cart? This action cannot be undone.`,
+      confirmText: 'Yes, Clear All',
+      cancelText: 'No, Keep Items',
+      variant: 'danger',
+      iconType: 'warning',
+      onConfirm: () => {
+        closeConfirm();
+        setCart([]);
+        setCartNotification('Cart cleared');
+        setTimeout(() => setCartNotification(null), 2500);
+      }
+    });
+  };
+
+  // ============================================
+  // CANCEL ORDER (WITH CONFIRMATION)
+  // ============================================
+  const cancelOrder = (order) => {
+    openConfirm({
+      title: 'Cancel Order?',
+      message: `Are you sure you want to cancel order #${order.order_number || order.id.slice(0, 8)}? This action cannot be undone.`,
+      confirmText: 'Yes, Cancel Order',
+      cancelText: 'No, Keep Order',
+      variant: 'danger',
+      iconType: 'warning',
+      onConfirm: async () => {
+        setCancellingOrder(order.id);
+        closeConfirm();
+        try {
+          const { error: cancelError } = await supabase
+            .from('orders')
+            .update({ status: 'cancelled' })
+            .eq('id', order.id);
+
+          if (cancelError) throw cancelError;
+
+          await refreshOrders();
+          alert('✅ Order cancelled successfully!');
+        } catch (err) {
+          console.error('❌ Cancel order error:', err);
+          alert('❌ Failed to cancel order: ' + err.message);
+        } finally {
+          setCancellingOrder(null);
+        }
+      }
+    });
   };
 
   const cartTotal = cart.reduce((total, item) => total + (item.price * item.qty), 0);
@@ -373,6 +553,24 @@ function CustomerDashboard({ user, onLogout }) {
     }
   };
 
+  // ============================================
+  // HANDLE LOGOUT (WITH CONFIRMATION)
+  // ============================================
+  const handleLogout = () => {
+    openConfirm({
+      title: 'Log Out?',
+      message: 'Are you sure you want to log out of your account?',
+      confirmText: 'Yes, Log Out',
+      cancelText: 'No, Stay',
+      variant: 'warning',
+      iconType: 'warning',
+      onConfirm: () => {
+        closeConfirm();
+        onLogout();
+      }
+    });
+  };
+
   if (menuLoading) {
     return (
       <div className="loading-screen">
@@ -412,7 +610,7 @@ function CustomerDashboard({ user, onLogout }) {
             <span className="user-avatar">👤</span>
             <span className="user-name">{user?.name || 'Guest'}</span>
           </div>
-          <button className="logout-btn" onClick={onLogout}>
+          <button className="logout-btn" onClick={handleLogout}>
             <LogOutIcon /> Logout
           </button>
         </div>
@@ -464,7 +662,7 @@ function CustomerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* MENU VIEW - Same as before */}
+      {/* MENU VIEW */}
       {activeTab === 'menu' && (
         <div className="menu-view">
           <div className="menu-header-section">
@@ -494,12 +692,22 @@ function CustomerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* CART VIEW - Same as before */}
+      {/* CART VIEW */}
       {activeTab === 'cart' && (
         <div className="cart-view">
           <div className="cart-container">
             <div className="cart-items-section">
-              <h2>Your Order</h2>
+              <div className="cart-section-header">
+                <h2>Your Order</h2>
+                {cart.length > 0 && (
+                  <button 
+                    className="clear-cart-btn"
+                    onClick={clearCart}
+                  >
+                    <TrashIcon /> Clear All
+                  </button>
+                )}
+              </div>
               {cart.length === 0 ? (
                 <div className="empty-state">
                   <div className="empty-icon">☕</div>
@@ -620,7 +828,7 @@ function CustomerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* ORDERS & REVIEWS VIEW - Same as before */}
+      {/* ORDERS & REVIEWS VIEW */}
       {activeTab === 'orders' && (
         <div className="orders-view">
           <div className="orders-header">
@@ -678,6 +886,21 @@ function CustomerDashboard({ user, onLogout }) {
                     <span className="order-total">Total: ₱{order.total_amount}</span>
                     <span className="order-payment">{order.payment_status || 'Unverified'}</span>
                   </div>
+
+                  {/* Cancel Order Button - Only for pending orders */}
+                  {order.status === 'pending' && (
+                    <button 
+                      className="cancel-order-btn"
+                      onClick={() => cancelOrder(order)}
+                      disabled={cancellingOrder === order.id}
+                    >
+                      {cancellingOrder === order.id ? (
+                        <>⏳ Cancelling...</>
+                      ) : (
+                        <>❌ Cancel Order</>
+                      )}
+                    </button>
+                  )}
 
                   {/* Review Section */}
                   {!order.reviews && reviewForm.orderId !== order.id && order.status === 'completed' && (
@@ -740,7 +963,7 @@ function CustomerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* PROFILE VIEW - Same as before */}
+      {/* PROFILE VIEW */}
       {activeTab === 'profile' && (
         <div className="profile-view">
           <div className="profile-container">
@@ -909,6 +1132,21 @@ function CustomerDashboard({ user, onLogout }) {
           </div>
         </div>
       )}
+
+      {/* ============================================ */}
+      {/* CONFIRMATION MODAL */}
+      {/* ============================================ */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        confirmText={confirmModal.confirmText}
+        cancelText={confirmModal.cancelText}
+        variant={confirmModal.variant}
+        iconType={confirmModal.iconType}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={closeConfirm}
+      />
     </div>
   );
 }
