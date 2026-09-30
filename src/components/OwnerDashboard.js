@@ -5,9 +5,7 @@ import { initStorage, uploadImage as uploadImageUtil, deleteImage as deleteImage
 import './OwnerDashboard.css';
 
 // Import logo
-import logo from '../assets/logo.jpg'; // If in src/assets/
-// OR if in public folder:
-// const logo = '/logo.png';
+import logo from '../assets/logo.jpg';
 
 // Icons
 const LogOutIcon = () => (
@@ -125,6 +123,64 @@ const SaveIcon = () => (
   </svg>
 );
 
+const WarningIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+    <line x1="12" y1="9" x2="12" y2="13"/>
+    <line x1="12" y1="17" x2="12.01" y2="17"/>
+  </svg>
+);
+
+// ============================================
+// CONFIRMATION MODAL COMPONENT
+// ============================================
+function ConfirmModal({ 
+  isOpen, 
+  title, 
+  message, 
+  confirmText = 'Yes, Delete', 
+  cancelText = 'No, Cancel',
+  onConfirm, 
+  onCancel,
+  isLoading = false,
+  variant = 'danger' // 'danger' | 'warning'
+}) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="confirm-modal-overlay" onClick={onCancel}>
+      <div 
+        className={`confirm-modal-content confirm-modal-${variant}`} 
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="confirm-modal-icon">
+          <WarningIcon />
+        </div>
+        
+        <h3 className="confirm-modal-title">{title}</h3>
+        <p className="confirm-modal-message">{message}</p>
+        
+        <div className="confirm-modal-actions">
+          <button 
+            className="confirm-btn confirm-btn-no"
+            onClick={onCancel}
+            disabled={isLoading}
+          >
+            {cancelText}
+          </button>
+          <button 
+            className="confirm-btn confirm-btn-yes"
+            onClick={onConfirm}
+            disabled={isLoading}
+          >
+            {isLoading ? '⏳ Processing...' : confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function OwnerDashboard({ user, onLogout }) {
   // State for active tab
   const [activeTab, setActiveTab] = useState('orders');
@@ -175,6 +231,37 @@ function OwnerDashboard({ user, onLogout }) {
   // State for deleting product
   const [deletingProduct, setDeletingProduct] = useState(null);
 
+  // ============================================
+  // CONFIRMATION MODAL STATE
+  // ============================================
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'Yes, Delete',
+    cancelText: 'No, Cancel',
+    onConfirm: null,
+    variant: 'danger'
+  });
+
+  // Helper to open confirmation modal
+  const openConfirm = ({ title, message, confirmText, cancelText, onConfirm, variant = 'danger' }) => {
+    setConfirmModal({
+      isOpen: true,
+      title,
+      message,
+      confirmText: confirmText || 'Yes, Delete',
+      cancelText: cancelText || 'No, Cancel',
+      onConfirm,
+      variant
+    });
+  };
+
+  // Helper to close confirmation modal
+  const closeConfirm = () => {
+    setConfirmModal(prev => ({ ...prev, isOpen: false, onConfirm: null }));
+  };
+
   // State for storage
   const [bucketExists, setBucketExists] = useState(false);
   const [storageInitialized, setStorageInitialized] = useState(false);
@@ -207,7 +294,6 @@ function OwnerDashboard({ user, onLogout }) {
   const { orders, refetch: refetchOrders } = useOrders();
   const { reviews } = useReviews();
   
-  // Use the employees hook
   const { 
     employees, 
     loading: loadingEmployees, 
@@ -281,22 +367,30 @@ function OwnerDashboard({ user, onLogout }) {
     }
   };
 
-  // Handle employee deletion
-  const handleDeleteEmployee = async (employeeId, employeeName) => {
-    if (!window.confirm(`Are you sure you want to delete employee "${employeeName}"? This action cannot be undone.`)) {
-      return;
-    }
-
-    setDeletingEmployee(employeeId);
-    try {
-      await deleteEmployee(employeeId);
-      alert('✅ Employee deleted successfully!');
-    } catch (error) {
-      console.error('Error deleting employee:', error);
-      alert('❌ Failed to delete employee: ' + error.message);
-    } finally {
-      setDeletingEmployee(null);
-    }
+  // ============================================
+  // HANDLE EMPLOYEE DELETION (WITH CONFIRMATION)
+  // ============================================
+  const handleDeleteEmployee = (employeeId, employeeName) => {
+    openConfirm({
+      title: 'Delete Employee?',
+      message: `Are you sure you want to delete employee "${employeeName}"? This action cannot be undone.`,
+      confirmText: 'Yes, Delete',
+      cancelText: 'No, Cancel',
+      variant: 'danger',
+      onConfirm: async () => {
+        setDeletingEmployee(employeeId);
+        closeConfirm();
+        try {
+          await deleteEmployee(employeeId);
+          alert('✅ Employee deleted successfully!');
+        } catch (error) {
+          console.error('Error deleting employee:', error);
+          alert('❌ Failed to delete employee: ' + error.message);
+        } finally {
+          setDeletingEmployee(null);
+        }
+      }
+    });
   };
 
   // Handle image selection
@@ -513,30 +607,38 @@ function OwnerDashboard({ user, onLogout }) {
     }
   };
 
-  // Handle delete product
-  const handleDeleteProduct = async (product) => {
-    if (!window.confirm(`Are you sure you want to delete "${product.name}"? This action cannot be undone.`)) {
-      return;
-    }
+  // ============================================
+  // HANDLE PRODUCT DELETION (WITH CONFIRMATION)
+  // ============================================
+  const handleDeleteProduct = (product) => {
+    openConfirm({
+      title: 'Delete Product?',
+      message: `Are you sure you want to delete "${product.name}"? This will permanently remove the product and its image. This action cannot be undone.`,
+      confirmText: 'Yes, Delete',
+      cancelText: 'No, Cancel',
+      variant: 'danger',
+      onConfirm: async () => {
+        setDeletingProduct(product.id);
+        closeConfirm();
+        try {
+          if (product.image_url) {
+            console.log('🗑️ Deleting image:', product.image_url);
+            await deleteImage(product.image_url);
+          }
 
-    setDeletingProduct(product.id);
-    try {
-      if (product.image_url) {
-        console.log('🗑️ Deleting image:', product.image_url);
-        await deleteImage(product.image_url);
+          console.log('🗑️ Deleting product:', product.id);
+          await deleteMenuItem(product.id);
+          
+          alert('✅ Product deleted successfully!');
+          await refetchMenuItems();
+        } catch (error) {
+          console.error('Delete error:', error);
+          alert('❌ Failed to delete product: ' + error.message);
+        } finally {
+          setDeletingProduct(null);
+        }
       }
-
-      console.log('🗑️ Deleting product:', product.id);
-      await deleteMenuItem(product.id);
-      
-      alert('✅ Product deleted successfully!');
-      await refetchMenuItems();
-    } catch (error) {
-      console.error('Delete error:', error);
-      alert('❌ Failed to delete product: ' + error.message);
-    } finally {
-      setDeletingProduct(null);
-    }
+    });
   };
 
   // Update order status
@@ -554,6 +656,23 @@ function OwnerDashboard({ user, onLogout }) {
     } catch (error) {
       alert('❌ Failed to update order status: ' + error.message);
     }
+  };
+
+  // ============================================
+  // HANDLE LOGOUT (WITH CONFIRMATION)
+  // ============================================
+  const handleLogout = () => {
+    openConfirm({
+      title: 'Log Out?',
+      message: 'Are you sure you want to log out of your account?',
+      confirmText: 'Yes, Log Out',
+      cancelText: 'No, Stay',
+      variant: 'warning',
+      onConfirm: () => {
+        closeConfirm();
+        onLogout();
+      }
+    });
   };
 
   // Profile Update Functions
@@ -753,7 +872,7 @@ function OwnerDashboard({ user, onLogout }) {
             <span className="user-avatar">👤</span>
             <span className="user-name">{user?.name || 'Owner'}</span>
           </div>
-          <button onClick={onLogout} className="logout-btn">
+          <button onClick={handleLogout} className="logout-btn">
             <LogOutIcon /> Logout
           </button>
         </div>
@@ -841,16 +960,9 @@ function OwnerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {storageInitialized && bucketExists && (
-        <div className="">
-          {/* ✅ Storage bucket "product-images" is ready */}
-        </div>
-      )}
-
       {/* ORDERS TAB */}
       {activeTab === 'orders' && (
         <div className="orders-section">
-          {/* Metrics Cards */}
           <div className="metrics-grid">
             <div className="metric-card">
               <div className="metric-icon">📋</div>
@@ -901,7 +1013,6 @@ function OwnerDashboard({ user, onLogout }) {
             </div>
           </div>
 
-          {/* Order Filters */}
           <div className="orders-toolbar">
             <div className="filter-group">
               <button 
@@ -932,7 +1043,6 @@ function OwnerDashboard({ user, onLogout }) {
             <span className="order-count">{filteredOrders.length} orders</span>
           </div>
 
-          {/* Order List */}
           <div className="orders-list">
             {filteredOrders.length === 0 ? (
               <div className="empty-state">
@@ -991,18 +1101,18 @@ function OwnerDashboard({ user, onLogout }) {
                   </div>
                   
                   <div className="order-footer">
-  <span className="customer-name">
-    👤 {order.users?.name || 'Guest'}
-    {order.users?.email && (
-      <span style={{color: '#64748b', fontSize: '0.75rem', marginLeft: '0.5rem'}}>
-        ({order.users.email})
-      </span>
-    )}
-  </span>
-  <span className="payment-method">
-    {order.payment_status || 'Pending'}
-  </span>
-</div>
+                    <span className="customer-name">
+                      👤 {order.users?.name || 'Guest'}
+                      {order.users?.email && (
+                        <span style={{color: '#64748b', fontSize: '0.75rem', marginLeft: '0.5rem'}}>
+                          ({order.users.email})
+                        </span>
+                      )}
+                    </span>
+                    <span className="payment-method">
+                      {order.payment_status || 'Pending'}
+                    </span>
+                  </div>
                 </div>
               ))
             )}
@@ -1679,7 +1789,6 @@ function OwnerDashboard({ user, onLogout }) {
             )}
 
             <div className="profile-grid">
-              {/* Profile Information */}
               <div className="profile-card">
                 <div className="profile-card-header">
                   <h3>
@@ -1775,7 +1884,6 @@ function OwnerDashboard({ user, onLogout }) {
                 )}
               </div>
 
-              {/* Change Password */}
               <div className="profile-card">
                 <div className="profile-card-header">
                   <h3>
@@ -1830,6 +1938,20 @@ function OwnerDashboard({ user, onLogout }) {
           </div>
         </div>
       )}
+
+      {/* ============================================ */}
+      {/* CONFIRMATION MODAL */}
+      {/* ============================================ */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        confirmText={confirmModal.confirmText}
+        cancelText={confirmModal.cancelText}
+        variant={confirmModal.variant}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={closeConfirm}
+      />
     </div>
   );
 }
