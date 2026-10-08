@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import './Login.css';
 
@@ -22,6 +22,12 @@ const EyeOffIcon = () => (
   </svg>
 );
 
+const CheckIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="20 6 9 17 4 12"/>
+  </svg>
+);
+
 const Login = ({ onLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -31,7 +37,44 @@ const Login = ({ onLogin }) => {
   const [isSignUp, setIsSignUp] = useState(false);
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
-  const [showPassword, setShowPassword] = useState(false); // ← NEW
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false); // ← NEW
+
+  // ============================================
+  // LOAD SAVED CREDENTIALS ON MOUNT
+  // ============================================
+  useEffect(() => {
+    const savedRemember = localStorage.getItem('rememberMe') === 'true';
+    const savedEmail = localStorage.getItem('rememberedEmail') || '';
+    const savedPassword = localStorage.getItem('rememberedPassword') || '';
+    const savedRole = localStorage.getItem('rememberedRole') || 'customer';
+
+    if (savedRemember) {
+      setRememberMe(true);
+      setEmail(savedEmail);
+      setPassword(savedPassword);
+      setRole(savedRole);
+      // Only show password if it was saved (auto-fill keeps it hidden as dots)
+      // Leave showPassword false for security — user can click eye to reveal
+    }
+  }, []);
+
+  // ============================================
+  // SAVE / CLEAR CREDENTIALS
+  // ============================================
+  const saveCredentials = () => {
+    localStorage.setItem('rememberMe', 'true');
+    localStorage.setItem('rememberedEmail', email);
+    localStorage.setItem('rememberedPassword', password);
+    localStorage.setItem('rememberedRole', role);
+  };
+
+  const clearCredentials = () => {
+    localStorage.removeItem('rememberMe');
+    localStorage.removeItem('rememberedEmail');
+    localStorage.removeItem('rememberedPassword');
+    localStorage.removeItem('rememberedRole');
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -133,6 +176,13 @@ const Login = ({ onLogin }) => {
             throw new Error('Profile not found. Please try signing in.');
           }
 
+          // Save credentials if remember me is checked
+          if (rememberMe) {
+            saveCredentials();
+          } else {
+            clearCredentials();
+          }
+
           console.log('✅ Signed in as:', userData);
           onLogin(userData.role, userData);
         }
@@ -167,6 +217,13 @@ const Login = ({ onLogin }) => {
             throw new Error(`This account is registered as ${userData.role}. Please select the correct role.`);
           }
 
+          // Save credentials if remember me is checked
+          if (rememberMe) {
+            saveCredentials();
+          } else {
+            clearCredentials();
+          }
+
           onLogin(role, userData);
         }
       }
@@ -178,12 +235,11 @@ const Login = ({ onLogin }) => {
     }
   };
 
-  // Reset show password when toggling modes
   const handleToggleMode = () => {
     setIsSignUp(!isSignUp);
     setError('');
     setSuccessMessage('');
-    setShowPassword(false); // ← Hide password again when switching
+    setShowPassword(false);
     if (!isSignUp) {
       setRole('customer');
     }
@@ -251,9 +307,6 @@ const Login = ({ onLogin }) => {
                 </div>
               </div>
 
-              {/* ============================================
-                  PASSWORD FIELD WITH SHOW/HIDE TOGGLE
-                  ============================================ */}
               <div className="form-group">
                 <label>Password</label>
                 <div className="input-wrapper password-wrapper">
@@ -274,10 +327,35 @@ const Login = ({ onLogin }) => {
                     title={showPassword ? 'Hide password' : 'Show password'}
                     tabIndex={-1}
                   >
-                    {showPassword ? <EyeIcon /> : <EyeOffIcon />}
+                    {showPassword ? <EyeOffIcon /> : <EyeIcon />}
                   </button>
                 </div>
               </div>
+
+              {/* ============================================
+                  REMEMBER ME CHECKBOX (only on Sign In)
+                  ============================================ */}
+              {!isSignUp && (
+                <div className="form-group">
+                  <label className="remember-me-label">
+                    <input
+                      type="checkbox"
+                      checked={rememberMe}
+                      onChange={(e) => {
+                        setRememberMe(e.target.checked);
+                        if (!e.target.checked) {
+                          clearCredentials();
+                        }
+                      }}
+                      className="remember-me-checkbox"
+                    />
+                    <span className="remember-me-custom-checkbox">
+                      {rememberMe && <CheckIcon />}
+                    </span>
+                    <span className="remember-me-text">Remember me</span>
+                  </label>
+                </div>
+              )}
 
               {isSignUp && (
                 <div className="form-group">
