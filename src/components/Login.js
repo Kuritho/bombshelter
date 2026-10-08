@@ -5,6 +5,23 @@ import './Login.css';
 // Import logo
 import logo from '../assets/logo.jpg';
 
+// ============================================
+// ICONS
+// ============================================
+const EyeIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+    <circle cx="12" cy="12" r="3"/>
+  </svg>
+);
+
+const EyeOffIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+    <line x1="1" y1="1" x2="23" y2="23"/>
+  </svg>
+);
+
 const Login = ({ onLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -14,6 +31,7 @@ const Login = ({ onLogin }) => {
   const [isSignUp, setIsSignUp] = useState(false);
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+  const [showPassword, setShowPassword] = useState(false); // ← NEW
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -52,18 +70,14 @@ const Login = ({ onLogin }) => {
 
         console.log('✅ Auth user created:', authData.user.id);
 
-        // Wait briefly for the auth trigger to create the profile
-        // (If you have a DB trigger that inserts into public.users)
         await new Promise(resolve => setTimeout(resolve, 800));
 
-        // Check if profile exists
-        let { data: existingUser, error: fetchError } = await supabase
+        let { data: existingUser } = await supabase
           .from('users')
           .select('*')
           .eq('id', authData.user.id)
           .maybeSingle();
 
-        // If no profile exists, create one manually
         if (!existingUser) {
           console.log('Creating user profile manually...');
 
@@ -81,21 +95,16 @@ const Login = ({ onLogin }) => {
             .maybeSingle();
 
           if (insertError) {
-            // Handle duplicate
             if (insertError.code === '23505') {
               console.log('Profile already exists, continuing...');
             } else {
               console.error('Profile insert error:', insertError);
-              // Continue anyway — auth user was created
             }
           }
 
           existingUser = newUser;
         }
 
-        // ============================================
-        // INSTANT LOGIN: Sign in the user right away
-        // ============================================
         console.log('🔐 Auto-signing in new user...');
 
         const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
@@ -105,16 +114,15 @@ const Login = ({ onLogin }) => {
 
         if (signInError) {
           console.error('Auto-sign-in failed:', signInError);
-          // Fallback: tell user to sign in manually
           setSuccessMessage('✅ Account created! Please sign in with your new credentials.');
           setIsSignUp(false);
           setPassword('');
+          setShowPassword(false);
           setLoading(false);
           return;
         }
 
         if (signInData.user) {
-          // Fetch the profile (again, in case trigger was slow)
           const { data: userData } = await supabase
             .from('users')
             .select('*')
@@ -167,6 +175,17 @@ const Login = ({ onLogin }) => {
       setError(err.message || 'An error occurred during authentication');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Reset show password when toggling modes
+  const handleToggleMode = () => {
+    setIsSignUp(!isSignUp);
+    setError('');
+    setSuccessMessage('');
+    setShowPassword(false); // ← Hide password again when switching
+    if (!isSignUp) {
+      setRole('customer');
     }
   };
 
@@ -232,18 +251,31 @@ const Login = ({ onLogin }) => {
                 </div>
               </div>
 
+              {/* ============================================
+                  PASSWORD FIELD WITH SHOW/HIDE TOGGLE
+                  ============================================ */}
               <div className="form-group">
                 <label>Password</label>
-                <div className="input-wrapper">
+                <div className="input-wrapper password-wrapper">
                   <span className="input-icon"></span>
                   <input
-                    type="password"
+                    type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder={isSignUp ? 'Min 6 characters' : 'Enter your password'}
                     required
                     minLength={6}
                   />
+                  <button
+                    type="button"
+                    className="password-toggle-btn"
+                    onClick={() => setShowPassword(!showPassword)}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    title={showPassword ? 'Hide password' : 'Show password'}
+                    tabIndex={-1}
+                  >
+                    {showPassword ? <EyeIcon /> : <EyeOffIcon />}
+                  </button>
                 </div>
               </div>
 
@@ -320,14 +352,7 @@ const Login = ({ onLogin }) => {
             <div className="auth-footer">
               <button 
                 className="toggle-auth-btn"
-                onClick={() => {
-                  setIsSignUp(!isSignUp);
-                  setError('');
-                  setSuccessMessage('');
-                  if (!isSignUp) {
-                    setRole('customer');
-                  }
-                }}
+                onClick={handleToggleMode}
               >
                 {isSignUp ? (
                   <span>Already have an account? <strong>Sign In</strong></span>
