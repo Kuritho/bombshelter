@@ -3,10 +3,16 @@ import { supabase } from '../supabaseClient';
 import { useMenuItems, useOrders } from '../hooks/useSupabase';
 import './CustomerDashboard.css';
 
-// Import logo - adjust path based on where you placed it
+// Import logo
 import logo from '../assets/logo.jpg';
 
-// Icons
+// Import QR codes
+import gcashQR from '../assets/gcash-qr.png';
+import paymayaQR from '../assets/paymaya-qr.png';
+
+// ============================================
+// ICONS
+// ============================================
 const ShoppingCartIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <circle cx="8" cy="21" r="1"/>
@@ -28,14 +34,6 @@ const LogOutIcon = () => (
     <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
     <polyline points="16 17 21 12 16 7"/>
     <line x1="21" y1="12" x2="9" y2="12"/>
-  </svg>
-);
-
-const MenuIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="3" y1="12" x2="21" y2="12"/>
-    <line x1="3" y1="6" x2="21" y2="6"/>
-    <line x1="3" y1="18" x2="21" y2="18"/>
   </svg>
 );
 
@@ -95,20 +93,100 @@ const XCircleIcon = () => (
   </svg>
 );
 
+const UploadIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+    <polyline points="17 8 12 3 7 8"/>
+    <line x1="12" y1="3" x2="12" y2="15"/>
+  </svg>
+);
+
+const MinusIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="5" y1="12" x2="19" y2="12"/>
+  </svg>
+);
+
+const PlusIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="12" y1="5" x2="12" y2="19"/>
+    <line x1="5" y1="12" x2="19" y2="12"/>
+  </svg>
+);
+
+const InfoIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10"/>
+    <line x1="12" y1="16" x2="12" y2="12"/>
+    <line x1="12" y1="8" x2="12.01" y2="8"/>
+  </svg>
+);
+
+const ReceiptIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1-2-1z"/>
+    <path d="M8 7h8"/>
+    <path d="M8 11h8"/>
+    <path d="M8 15h5"/>
+  </svg>
+);
+
+const EyeIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+    <circle cx="12" cy="12" r="3"/>
+  </svg>
+);
+
+const DownloadIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+    <polyline points="7 10 12 15 17 10"/>
+    <line x1="12" y1="15" x2="12" y2="3"/>
+  </svg>
+);
+
+const GCashIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="5" width="20" height="14" rx="2"/>
+    <line x1="2" y1="10" x2="22" y2="10"/>
+  </svg>
+);
+
+const PayMayaIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10"/>
+    <path d="M8 12h8"/>
+    <path d="M12 8v8"/>
+  </svg>
+);
+
+// ============================================
+// HELPER: Payment Status Display
+// ============================================
+const getPaymentStatusInfo = (status) => {
+  switch (status) {
+    case 'valid':
+      return { label: '✅ Verified', className: 'valid' };
+    case 'unverified':
+      return { label: '⏳ Awaiting Verification', className: 'unverified' };
+    case 'underpayment':
+      return { label: '⚠️ Underpaid', className: 'underpayment' };
+    case 'overpayment':
+      return { label: '⚠️ Overpaid', className: 'overpayment' };
+    default:
+      return { label: '⏳ Unverified', className: 'unverified' };
+  }
+};
+
 // ============================================
 // CONFIRMATION MODAL COMPONENT
 // ============================================
 function ConfirmModal({ 
-  isOpen, 
-  title, 
-  message, 
-  confirmText = 'Yes, Confirm', 
-  cancelText = 'No, Cancel',
-  onConfirm, 
-  onCancel,
-  isLoading = false,
-  variant = 'danger', // 'danger' | 'warning' | 'info'
-  iconType = 'warning' // 'warning' | 'x-circle'
+  isOpen, title, message, 
+  confirmText = 'Yes, Confirm', cancelText = 'No, Cancel',
+  onConfirm, onCancel, isLoading = false,
+  variant = 'danger', iconType = 'warning'
 }) {
   if (!isOpen) return null;
 
@@ -146,10 +224,31 @@ function ConfirmModal({
   );
 }
 
+// ============================================
+// RECEIPT VIEWER MODAL
+// ============================================
+function ReceiptViewerModal({ isOpen, imageUrl, onClose }) {
+  if (!isOpen || !imageUrl) return null;
+
+  return (
+    <div className="receipt-viewer-overlay" onClick={onClose}>
+      <div className="receipt-viewer-content" onClick={(e) => e.stopPropagation()}>
+        <button className="receipt-viewer-close" onClick={onClose}>×</button>
+        <h3 className="receipt-viewer-title">Payment Proof</h3>
+        <img src={imageUrl} alt="Payment proof" className="receipt-viewer-image" />
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// MAIN COMPONENT
+// ============================================
 function CustomerDashboard({ user, onLogout }) {
   const [activeTab, setActiveTab] = useState('menu');
   const [cart, setCart] = useState([]);
   const [orderType, setOrderType] = useState('dine-in');
+  const [paymentMethod, setPaymentMethod] = useState('gcash');
   const [gcashProof, setGcashProof] = useState(null);
   const [gcashProofPreview, setGcashProofPreview] = useState(null);
   const [reviewForm, setReviewForm] = useState({ orderId: null, rating: 5, text: '' });
@@ -158,58 +257,42 @@ function CustomerDashboard({ user, onLogout }) {
   const [cartNotification, setCartNotification] = useState(null);
   const [cancellingOrder, setCancellingOrder] = useState(null);
   
+  // Receipt viewer + expanded order
+  const [viewingReceipt, setViewingReceipt] = useState(null);
+  const [expandedOrder, setExpandedOrder] = useState(null);
+  
   // Profile state
   const [profile, setProfile] = useState({
     name: user?.name || '',
     email: user?.email || '',
   });
   const [passwordData, setPasswordData] = useState({
-    currentPassword: '',
-    newPassword: '',
-    confirmPassword: '',
+    currentPassword: '', newPassword: '', confirmPassword: '',
   });
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileSuccess, setProfileSuccess] = useState('');
   const [profileError, setProfileError] = useState('');
   const [isEditingProfile, setIsEditingProfile] = useState(false);
 
-  // ============================================
-  // CONFIRMATION MODAL STATE
-  // ============================================
+  // Confirmation modal state
   const [confirmModal, setConfirmModal] = useState({
-    isOpen: false,
-    title: '',
-    message: '',
-    confirmText: 'Yes, Confirm',
-    cancelText: 'No, Cancel',
-    onConfirm: null,
-    variant: 'danger',
-    iconType: 'warning'
+    isOpen: false, title: '', message: '',
+    confirmText: 'Yes, Confirm', cancelText: 'No, Cancel',
+    onConfirm: null, variant: 'danger', iconType: 'warning'
   });
 
-  // Helper to open confirmation modal
   const openConfirm = ({ 
-    title, 
-    message, 
-    confirmText, 
-    cancelText, 
-    onConfirm, 
-    variant = 'danger',
-    iconType = 'warning'
+    title, message, confirmText, cancelText, onConfirm, 
+    variant = 'danger', iconType = 'warning'
   }) => {
     setConfirmModal({
-      isOpen: true,
-      title,
-      message,
+      isOpen: true, title, message,
       confirmText: confirmText || 'Yes, Confirm',
       cancelText: cancelText || 'No, Cancel',
-      onConfirm,
-      variant,
-      iconType
+      onConfirm, variant, iconType
     });
   };
 
-  // Helper to close confirmation modal
   const closeConfirm = () => {
     setConfirmModal(prev => ({ ...prev, isOpen: false, onConfirm: null }));
   };
@@ -217,7 +300,9 @@ function CustomerDashboard({ user, onLogout }) {
   const { items: menuItems, loading: menuLoading } = useMenuItems();
   const { orders, createOrder, refresh: refreshOrders } = useOrders(user?.id);
 
-  // Handle Gcash proof file selection
+  // ============================================
+  // FILE HANDLERS
+  // ============================================
   const handleGcashProofSelect = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -236,14 +321,67 @@ function CustomerDashboard({ user, onLogout }) {
 
       setGcashProof(file);
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setGcashProofPreview(reader.result);
-      };
+      reader.onloadend = () => setGcashProofPreview(reader.result);
       reader.readAsDataURL(file);
     }
   };
 
-  // Add to cart with notification
+  const handlePaymentMethodChange = (method) => {
+    if (method === paymentMethod) return;
+    
+    if (gcashProof) {
+      openConfirm({
+        title: 'Change Payment Method?',
+        message: `You've already uploaded a proof of payment. Switching to ${method === 'gcash' ? 'GCash' : 'PayMaya'} will remove your current upload. Continue?`,
+        confirmText: 'Yes, Switch',
+        cancelText: 'No, Keep Current',
+        variant: 'warning',
+        iconType: 'warning',
+        onConfirm: () => {
+          closeConfirm();
+          setPaymentMethod(method);
+          setGcashProof(null);
+          setGcashProofPreview(null);
+          const fileInput = document.getElementById('gcash-proof-input');
+          if (fileInput) fileInput.value = '';
+        }
+      });
+    } else {
+      setPaymentMethod(method);
+    }
+  };
+
+  // ============================================
+  // DOWNLOAD QR
+  // ============================================
+  const downloadQR = async () => {
+    const qrSrc = paymentMethod === 'gcash' ? gcashQR : paymayaQR;
+    const fileName = `1of1-coffee-${paymentMethod}-qr.png`;
+
+    try {
+      const response = await fetch(qrSrc);
+      const blob = await response.blob();
+
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      setCartNotification(`QR code downloaded!`);
+      setTimeout(() => setCartNotification(null), 3000);
+    } catch (error) {
+      console.error('❌ Download QR error:', error);
+      alert('Failed to download QR code. Please try long-pressing the image instead.');
+    }
+  };
+
+  // ============================================
+  // CART OPERATIONS
+  // ============================================
   const addToCart = (item) => {
     setError(null);
     const existing = cart.find(cartItem => cartItem.id === item.id);
@@ -254,13 +392,49 @@ function CustomerDashboard({ user, onLogout }) {
       setCart([...cart, { ...item, qty: 1 }]);
       setCartNotification(`${item.name} added to cart`);
     }
-    
     setTimeout(() => setCartNotification(null), 2500);
   };
 
-  // ============================================
-  // REMOVE FROM CART (WITH CONFIRMATION)
-  // ============================================
+  const increaseQty = (id) => {
+    setCart(cart.map(item => 
+      item.id === id ? { ...item, qty: item.qty + 1 } : item
+    ));
+    const item = cart.find(c => c.id === id);
+    if (item) {
+      setCartNotification(`Added another ${item.name}`);
+      setTimeout(() => setCartNotification(null), 2000);
+    }
+  };
+
+  const decreaseQty = (id) => {
+    const item = cart.find(c => c.id === id);
+    if (!item) return;
+
+    if (item.qty === 1) {
+      openConfirm({
+        title: 'Remove Item?',
+        message: `Decreasing quantity will remove "${item.name}" from your cart. Continue?`,
+        confirmText: 'Yes, Remove',
+        cancelText: 'No, Keep',
+        variant: 'warning',
+        iconType: 'x-circle',
+        onConfirm: () => {
+          closeConfirm();
+          setCart(cart.filter(cartItem => cartItem.id !== id));
+          setCartNotification(`Removed ${item.name} from cart`);
+          setTimeout(() => setCartNotification(null), 2500);
+        }
+      });
+      return;
+    }
+
+    setCart(cart.map(c => 
+      c.id === id ? { ...c, qty: c.qty - 1 } : c
+    ));
+    setCartNotification(`Reduced ${item.name} quantity`);
+    setTimeout(() => setCartNotification(null), 2000);
+  };
+
   const removeFromCart = (id) => {
     const item = cart.find(c => c.id === id);
     if (!item) return;
@@ -282,9 +456,6 @@ function CustomerDashboard({ user, onLogout }) {
     });
   };
 
-  // ============================================
-  // CLEAR ENTIRE CART (WITH CONFIRMATION)
-  // ============================================
   const clearCart = () => {
     openConfirm({
       title: 'Clear Entire Cart?',
@@ -303,7 +474,7 @@ function CustomerDashboard({ user, onLogout }) {
   };
 
   // ============================================
-  // CANCEL ORDER (WITH CONFIRMATION)
+  // CANCEL ORDER
   // ============================================
   const cancelOrder = (order) => {
     openConfirm({
@@ -323,7 +494,6 @@ function CustomerDashboard({ user, onLogout }) {
             .eq('id', order.id);
 
           if (cancelError) throw cancelError;
-
           await refreshOrders();
           alert('✅ Order cancelled successfully!');
         } catch (err) {
@@ -339,41 +509,36 @@ function CustomerDashboard({ user, onLogout }) {
   const cartTotal = cart.reduce((total, item) => total + (item.price * item.qty), 0);
   const cartItemCount = cart.reduce((count, item) => count + item.qty, 0);
 
-  // Upload image to storage
+  // ============================================
+  // UPLOAD PROOF
+  // ============================================
   const uploadProofImage = async (file) => {
     try {
-      console.log('📤 Uploading proof image...');
-      
       const fileExt = file.name.split('.').pop();
       const fileName = `proofs/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
       
-      const { data, error: uploadError } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from('product-images')
-        .upload(fileName, file, {
-          cacheControl: '3600',
-          upsert: false
-        });
+        .upload(fileName, file, { cacheControl: '3600', upsert: false });
 
-      if (uploadError) {
-        console.error('❌ Upload error:', uploadError);
-        throw new Error('Failed to upload proof image: ' + uploadError.message);
-      }
+      if (uploadError) throw new Error('Failed to upload proof image: ' + uploadError.message);
 
       const { data: { publicUrl } } = supabase.storage
         .from('product-images')
         .getPublicUrl(fileName);
 
-      console.log('✅ Proof uploaded:', publicUrl);
       return publicUrl;
     } catch (error) {
-      console.error('❌ Error uploading proof:', error);
       throw error;
     }
   };
 
+  // ============================================
+  // CHECKOUT
+  // ============================================
   const handleCheckout = async () => {
     if (!gcashProof) {
-      alert("Please upload your GCash payment proof to proceed.");
+      alert(`Please upload your ${paymentMethod === 'gcash' ? 'GCash' : 'PayMaya'} payment proof to proceed.`);
       return;
     }
 
@@ -386,14 +551,10 @@ function CustomerDashboard({ user, onLogout }) {
     setOrderLoading(true);
 
     try {
-      console.log('🛒 Starting checkout process...');
-      
       let proofImageUrl = null;
       try {
         proofImageUrl = await uploadProofImage(gcashProof);
-        console.log('✅ Proof image uploaded:', proofImageUrl);
       } catch (uploadError) {
-        console.error('❌ Failed to upload proof:', uploadError);
         alert('Failed to upload payment proof. Please try again.');
         setOrderLoading(false);
         return;
@@ -403,19 +564,16 @@ function CustomerDashboard({ user, onLogout }) {
         customer_id: user.id,
         status: 'pending',
         payment_status: 'unverified',
+        payment_method: paymentMethod,
         total_amount: cartTotal,
         order_type: orderType,
         proof_image_url: proofImageUrl
       };
 
-      console.log('📦 Creating order with data:', orderData);
-      
       let newOrder;
       try {
         newOrder = await createOrder(orderData);
-        console.log('✅ Order created:', newOrder);
       } catch (orderError) {
-        console.error('❌ Failed to create order:', orderError);
         alert('Failed to create order: ' + (orderError.message || 'Please try again.'));
         setOrderLoading(false);
         return;
@@ -433,7 +591,6 @@ function CustomerDashboard({ user, onLogout }) {
         .insert(orderItems);
 
       if (itemsError) {
-        console.error('❌ Failed to create order items:', itemsError);
         alert('Failed to save order items. Please contact support.');
         setOrderLoading(false);
         return;
@@ -447,7 +604,6 @@ function CustomerDashboard({ user, onLogout }) {
       
       alert(`✅ Order placed successfully! Order #: ${newOrder.order_number || newOrder.id.slice(0, 8)}`);
     } catch (error) {
-      console.error('❌ Checkout error:', error);
       setError(error.message || 'Failed to place order. Please try again.');
       alert('❌ Failed to place order: ' + (error.message || 'Please try again.'));
     } finally {
@@ -455,6 +611,9 @@ function CustomerDashboard({ user, onLogout }) {
     }
   };
 
+  // ============================================
+  // SUBMIT REVIEW
+  // ============================================
   const submitReview = async (orderId) => {
     if (!reviewForm.text.trim()) {
       alert("Please write a recommendation/review.");
@@ -475,15 +634,15 @@ function CustomerDashboard({ user, onLogout }) {
 
       setReviewForm({ orderId: null, rating: 5, text: '' });
       await refreshOrders();
-      
       alert('✅ Review submitted successfully!');
     } catch (error) {
-      console.error('❌ Review error:', error);
       alert('❌ Failed to submit review: ' + error.message);
     }
   };
 
-  // Profile Update Functions
+  // ============================================
+  // PROFILE
+  // ============================================
   const handleProfileUpdate = async (e) => {
     e.preventDefault();
     setProfileLoading(true);
@@ -500,12 +659,9 @@ function CustomerDashboard({ user, onLogout }) {
 
       setProfileSuccess('✅ Profile updated successfully!');
       setIsEditingProfile(false);
-      
       user.name = profile.name;
-      
       setTimeout(() => setProfileSuccess(''), 3000);
     } catch (err) {
-      console.error('Profile update error:', err);
       setProfileError(err.message || 'Failed to update profile');
     } finally {
       setProfileLoading(false);
@@ -538,15 +694,9 @@ function CustomerDashboard({ user, onLogout }) {
       if (passwordError) throw passwordError;
 
       setProfileSuccess('✅ Password updated successfully!');
-      setPasswordData({
-        currentPassword: '',
-        newPassword: '',
-        confirmPassword: '',
-      });
-      
+      setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
       setTimeout(() => setProfileSuccess(''), 3000);
     } catch (err) {
-      console.error('Password update error:', err);
       setProfileError(err.message || 'Failed to update password');
     } finally {
       setProfileLoading(false);
@@ -554,7 +704,7 @@ function CustomerDashboard({ user, onLogout }) {
   };
 
   // ============================================
-  // HANDLE LOGOUT (WITH CONFIRMATION)
+  // LOGOUT
   // ============================================
   const handleLogout = () => {
     openConfirm({
@@ -580,9 +730,11 @@ function CustomerDashboard({ user, onLogout }) {
     );
   }
 
+  // ============================================
+  // RENDER
+  // ============================================
   return (
     <div className="customer-dashboard">
-      {/* Floating Notification */}
       {cartNotification && (
         <div className="cart-notification">
           <span className="notification-icon">✅</span>
@@ -594,11 +746,7 @@ function CustomerDashboard({ user, onLogout }) {
       <header className="dashboard-header">
         <div className="header-left">
           <div className="brand-logo">
-            <img 
-              src={logo} 
-              alt="1of1 Coffee" 
-              className="brand-logo-image"
-            />
+            <img src={logo} alt="1of1 Coffee" className="brand-logo-image" />
             <div className="brand-text">
               <h1>1of1 Coffee</h1>
               <span className="brand-subtitle">Bombshelter Ordering</span>
@@ -653,7 +801,6 @@ function CustomerDashboard({ user, onLogout }) {
         </button>
       </nav>
 
-      {/* Error Display */}
       {error && (
         <div className="error-banner">
           <span className="error-icon">❌</span>
@@ -700,10 +847,7 @@ function CustomerDashboard({ user, onLogout }) {
               <div className="cart-section-header">
                 <h2>Your Order</h2>
                 {cart.length > 0 && (
-                  <button 
-                    className="clear-cart-btn"
-                    onClick={clearCart}
-                  >
+                  <button className="clear-cart-btn" onClick={clearCart}>
                     <TrashIcon /> Clear All
                   </button>
                 )}
@@ -725,12 +869,33 @@ function CustomerDashboard({ user, onLogout }) {
                         <img src={item.image_url} alt={item.name} className="cart-item-img" />
                         <div className="cart-item-details">
                           <h3>{item.name}</h3>
-                          <p className="cart-item-price">₱{item.price} × {item.qty}</p>
+                          <p className="cart-item-price">₱{item.price} each</p>
                         </div>
                       </div>
                       <div className="cart-item-actions">
-                        <span className="cart-item-total">₱{item.price * item.qty}</span>
-                        <button className="remove-btn" onClick={() => removeFromCart(item.id)}>
+                        <div className="qty-controls">
+                          <button 
+                            className="qty-btn qty-btn-minus"
+                            onClick={() => decreaseQty(item.id)}
+                            title="Decrease quantity"
+                          >
+                            <MinusIcon />
+                          </button>
+                          <span className="qty-value">{item.qty}</span>
+                          <button 
+                            className="qty-btn qty-btn-plus"
+                            onClick={() => increaseQty(item.id)}
+                            title="Increase quantity"
+                          >
+                            <PlusIcon />
+                          </button>
+                        </div>
+                        <span className="cart-item-total">₱{(item.price * item.qty).toFixed(2)}</span>
+                        <button 
+                          className="remove-btn" 
+                          onClick={() => removeFromCart(item.id)}
+                          title="Remove item"
+                        >
                           <TrashIcon />
                         </button>
                       </div>
@@ -762,6 +927,103 @@ function CustomerDashboard({ user, onLogout }) {
                   </div>
                 </div>
 
+                <div className="payment-method-selector">
+                  <label>Payment Method</label>
+                  <div className="payment-method-options">
+                    <button 
+                      className={`payment-method-btn gcash ${paymentMethod === 'gcash' ? 'active' : ''}`}
+                      onClick={() => handlePaymentMethodChange('gcash')}
+                    >
+                      <GCashIcon />
+                      <span>GCash</span>
+                    </button>
+                    <button 
+                      className={`payment-method-btn paymaya ${paymentMethod === 'paymaya' ? 'active' : ''}`}
+                      onClick={() => handlePaymentMethodChange('paymaya')}
+                    >
+                      <PayMayaIcon />
+                      <span>PayMaya</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="payment-section">
+                  <h3 className="payment-section-title">
+                    Pay via {paymentMethod === 'gcash' ? 'GCash' : 'PayMaya'}
+                  </h3>
+
+                  <div className="payment-step">
+                    <div className="step-header">
+                      <span className="step-badge">Step 1</span>
+                      <span className="step-title">Scan the QR code to pay</span>
+                    </div>
+                    <div className="qr-code-container">
+                      <img 
+                        src={paymentMethod === 'gcash' ? gcashQR : paymayaQR} 
+                        alt={`${paymentMethod === 'gcash' ? 'GCash' : 'PayMaya'} QR Code`}
+                        className="qr-code-image"
+                      />
+                      <div className="qr-amount-badge">
+                        Total: ₱{cartTotal}
+                      </div>
+                    </div>
+
+                    <button 
+                      type="button"
+                      className="download-qr-btn"
+                      onClick={downloadQR}
+                    >
+                      <DownloadIcon />
+                      <span>Download QR Code</span>
+                    </button>
+
+                    <p className="step-hint">
+                      Open your {paymentMethod === 'gcash' ? 'GCash' : 'PayMaya'} app → <strong>Scan QR</strong> → Pay <strong>₱{cartTotal}</strong>
+                    </p>
+                  </div>
+
+                  <div className="payment-step">
+                    <div className="step-header">
+                      <span className="step-badge">Step 2</span>
+                      <span className="step-title">Upload your receipt / proof of payment</span>
+                    </div>
+                    <div className="gcash-upload">
+                      {gcashProofPreview ? (
+                        <div className="proof-preview">
+                          <img src={gcashProofPreview} alt="Payment proof" />
+                          <button 
+                            type="button"
+                            className="remove-proof-btn"
+                            onClick={() => {
+                              setGcashProof(null);
+                              setGcashProofPreview(null);
+                              const fileInput = document.getElementById('gcash-proof-input');
+                              if (fileInput) fileInput.value = '';
+                            }}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="file-upload-wrapper">
+                          <input 
+                            id="gcash-proof-input"
+                            type="file" 
+                            accept="image/*" 
+                            className="file-input"
+                            onChange={handleGcashProofSelect}
+                          />
+                          <div className="file-upload-label">
+                            <UploadIcon />
+                            <span>Click to upload screenshot</span>
+                            <span className="upload-hint">JPG, PNG, WEBP (Max 5MB)</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
                 <div className="checkout-summary">
                   <div className="checkout-summary-row">
                     <span>Subtotal</span>
@@ -771,41 +1033,6 @@ function CustomerDashboard({ user, onLogout }) {
                     <span>Total</span>
                     <span>₱{cartTotal}</span>
                   </div>
-                </div>
-
-                <div className="gcash-upload">
-                  <label>GCash Payment Proof</label>
-                  <p className="gcash-instructions">
-                    Send exactly <strong>₱{cartTotal}</strong> to <strong>0912 345 6789</strong> and upload the screenshot
-                  </p>
-                  {gcashProofPreview ? (
-                    <div className="proof-preview">
-                      <img src={gcashProofPreview} alt="Payment proof" />
-                      <button 
-                        type="button"
-                        className="remove-proof-btn"
-                        onClick={() => {
-                          setGcashProof(null);
-                          setGcashProofPreview(null);
-                          const fileInput = document.getElementById('gcash-proof-input');
-                          if (fileInput) fileInput.value = '';
-                        }}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="file-upload-wrapper">
-                      <input 
-                        id="gcash-proof-input"
-                        type="file" 
-                        accept="image/*" 
-                        className="file-input"
-                        onChange={handleGcashProofSelect}
-                      />
-                      <span className="file-upload-label">Click to upload</span>
-                    </div>
-                  )}
                 </div>
 
                 <button 
@@ -822,13 +1049,19 @@ function CustomerDashboard({ user, onLogout }) {
                     'Place Order'
                   )}
                 </button>
+
+                {!gcashProof && (
+                  <p className="checkout-hint">
+                    ⓘ Please scan the QR code and upload your proof of payment to enable checkout.
+                  </p>
+                )}
               </div>
             )}
           </div>
         </div>
       )}
 
-      {/* ORDERS & REVIEWS VIEW */}
+      {/* ORDERS VIEW */}
       {activeTab === 'orders' && (
         <div className="orders-view">
           <div className="orders-header">
@@ -846,118 +1079,239 @@ function CustomerDashboard({ user, onLogout }) {
             </div>
           ) : (
             <div className="orders-list">
-              {orders.map(order => (
-                <div key={order.id} className="order-card">
-                  <div className="order-header">
-                    <div className="order-info">
-                      <span className="order-id">#{order.order_number || order.id.slice(0, 8)}</span>
-                      <span className="order-date">
-                        {new Date(order.created_at).toLocaleDateString('en-PH', {
-                          year: 'numeric',
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
-                      </span>
-                    </div>
-                    <div className="order-badges">
-                      <span className={`order-type-badge ${order.order_type || 'dine-in'}`}>
-                        {order.order_type === 'takeout' ? '📦 Takeout' : '🍽️ Dine In'}
-                      </span>
-                      <span className={`order-status ${order.status}`}>
-                        {order.status === 'pending' && '⏳ Pending'}
-                        {order.status === 'processing' && '🔄 Processing'}
-                        {order.status === 'completed' && '✅ Completed'}
-                        {order.status === 'cancelled' && '❌ Cancelled'}
-                      </span>
-                    </div>
-                  </div>
-                  
-                  <div className="order-items-summary">
-                    {order.order_items?.map((item, idx) => (
-                      <span key={idx} className="order-item-tag">
-                        {item.quantity}x {item.menu_items?.name || 'Item'}
-                      </span>
-                    ))}
-                  </div>
-                  
-                  <div className="order-footer">
-                    <span className="order-total">Total: ₱{order.total_amount}</span>
-                    <span className="order-payment">{order.payment_status || 'Unverified'}</span>
-                  </div>
+              {orders.map(order => {
+                const paymentInfo = getPaymentStatusInfo(order.payment_status);
+                const isExpanded = expandedOrder === order.id;
+                const itemCount = order.order_items?.reduce((sum, i) => sum + i.quantity, 0) || 0;
 
-                  {/* Cancel Order Button - Only for pending orders */}
-                  {order.status === 'pending' && (
-                    <button 
-                      className="cancel-order-btn"
-                      onClick={() => cancelOrder(order)}
-                      disabled={cancellingOrder === order.id}
-                    >
-                      {cancellingOrder === order.id ? (
-                        <>⏳ Cancelling...</>
-                      ) : (
-                        <>❌ Cancel Order</>
-                      )}
-                    </button>
-                  )}
+                return (
+                  <div key={order.id} className={`order-card ${isExpanded ? 'expanded' : ''}`}>
+                    <div className="order-header">
+                      <div className="order-info">
+                        <span className="order-id">
+                          #{order.order_number || order.id.slice(0, 8)}
+                        </span>
+                        <span className="order-date">
+                          {new Date(order.created_at).toLocaleDateString('en-PH', {
+                            year: 'numeric', month: 'short', day: 'numeric',
+                            hour: '2-digit', minute: '2-digit'
+                          })}
+                        </span>
+                      </div>
+                      <div className="order-badges">
+                        <span className={`order-type-badge ${order.order_type || 'dine-in'}`}>
+                          {order.order_type === 'takeout' ? '📦 Takeout' : '🍽️ Dine In'}
+                        </span>
+                        <span className={`order-status ${order.status}`}>
+                          {order.status === 'pending' && '⏳ Pending'}
+                          {order.status === 'processing' && '🔄 Processing'}
+                          {order.status === 'completed' && '✅ Completed'}
+                          {order.status === 'cancelled' && '❌ Cancelled'}
+                        </span>
+                      </div>
+                    </div>
 
-                  {/* Review Section */}
-                  {!order.reviews && reviewForm.orderId !== order.id && order.status === 'completed' && (
-                    <button 
-                      className="write-review-btn"
-                      onClick={() => setReviewForm({ orderId: order.id, rating: 5, text: '' })}
-                    >
-                      ✍️ Write a Review
-                    </button>
-                  )}
-                  
-                  {!order.reviews && reviewForm.orderId === order.id && (
-                    <div className="review-section">
-                      <h4>Rate Your Experience</h4>
-                      <div className="star-rating">
-                        {[1, 2, 3, 4, 5].map(star => (
-                          <span 
-                            key={star} 
-                            className={`star ${star <= reviewForm.rating ? 'active' : ''}`}
-                            onClick={() => setReviewForm({...reviewForm, rating: star})}
-                          >
-                            ★
+                    <div className="order-summary-bar">
+                      <div className="summary-chips">
+                        {order.payment_method && (
+                          <span className={`payment-method-badge ${order.payment_method}`}>
+                            {order.payment_method === 'gcash' ? '💙 GCash' : '💚 PayMaya'}
                           </span>
-                        ))}
+                        )}
+                        <span className={`payment-status-badge ${paymentInfo.className}`}>
+                          {paymentInfo.label}
+                        </span>
+                        <span className="item-count-chip">
+                          🛍️ {itemCount} {itemCount === 1 ? 'item' : 'items'}
+                        </span>
                       </div>
-                      <textarea 
-                        className="review-input"
-                        placeholder="Would you recommend this coffee? Share your thoughts..."
-                        maxLength={300}
-                        value={reviewForm.text}
-                        onChange={(e) => setReviewForm({...reviewForm, text: e.target.value})}
-                      />
-                      <div className="review-char-count">{reviewForm.text.length} / 300</div>
-                      <div className="review-actions">
-                        <button className="submit-review-btn" onClick={() => submitReview(order.id)}>
-                          Submit Review
-                        </button>
-                        <button 
-                          className="cancel-review-btn"
-                          onClick={() => setReviewForm({orderId: null, rating: 5, text: ''})}
-                        >
-                          Cancel
-                        </button>
+                      <div className="summary-total">
+                        <span className="total-label">Total</span>
+                        <span className="total-value">₱{Number(order.total_amount).toFixed(2)}</span>
                       </div>
                     </div>
-                  )}
-                  
-                  {order.reviews && (
-                    <div className="review-display">
-                      <div className="review-stars">
-                        {'★'.repeat(order.reviews.rating)}{'☆'.repeat(5 - order.reviews.rating)}
+
+                    <button 
+                      className="toggle-details-btn"
+                      onClick={() => setExpandedOrder(isExpanded ? null : order.id)}
+                    >
+                      <InfoIcon />
+                      {isExpanded ? 'Hide Details' : 'View Full Details'}
+                    </button>
+
+                    {isExpanded && (
+                      <div className="order-details-expanded">
+                        <div className="detail-block">
+                          <h4 className="detail-block-title">
+                            <ReceiptIcon /> Order Items
+                          </h4>
+                          <div className="order-items-table">
+                            <div className="order-items-table-header">
+                              <span>Item</span>
+                              <span>Qty</span>
+                              <span>Price</span>
+                              <span>Subtotal</span>
+                            </div>
+                            {order.order_items?.map((item, idx) => (
+                              <div key={idx} className="order-items-table-row">
+                                <span className="item-name-cell">
+                                  {item.menu_items?.name || 'Item'}
+                                </span>
+                                <span className="item-qty-cell">×{item.quantity}</span>
+                                <span className="item-price-cell">
+                                  ₱{Number(item.price_at_time).toFixed(2)}
+                                </span>
+                                <span className="item-subtotal-cell">
+                                  ₱{(Number(item.price_at_time) * item.quantity).toFixed(2)}
+                                </span>
+                              </div>
+                            ))}
+                            <div className="order-items-table-total">
+                              <span></span>
+                              <span></span>
+                              <span>Total</span>
+                              <span>₱{Number(order.total_amount).toFixed(2)}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="detail-block">
+                          <h4 className="detail-block-title">
+                            💳 Payment Information
+                          </h4>
+                          <div className="detail-info-grid">
+                            <div className="detail-info-row">
+                              <span className="detail-info-label">Payment Method</span>
+                              <span className="detail-info-value">
+                                {order.payment_method === 'gcash' && '💙 GCash'}
+                                {order.payment_method === 'paymaya' && '💚 PayMaya'}
+                                {!order.payment_method && '—'}
+                              </span>
+                            </div>
+                            <div className="detail-info-row">
+                              <span className="detail-info-label">Payment Status</span>
+                              <span className={`payment-status-badge ${paymentInfo.className}`}>
+                                {paymentInfo.label}
+                              </span>
+                            </div>
+                            <div className="detail-info-row">
+                              <span className="detail-info-label">Order Type</span>
+                              <span className="detail-info-value">
+                                {order.order_type === 'takeout' ? '📦 Takeout' : '🍽️ Dine In'}
+                              </span>
+                            </div>
+                            <div className="detail-info-row">
+                              <span className="detail-info-label">Order Number</span>
+                              <span className="detail-info-value mono">
+                                {order.order_number || order.id}
+                              </span>
+                            </div>
+                            <div className="detail-info-row">
+                              <span className="detail-info-label">Placed On</span>
+                              <span className="detail-info-value">
+                                {new Date(order.created_at).toLocaleString('en-PH', {
+                                  year: 'numeric', month: 'long', day: 'numeric',
+                                  hour: '2-digit', minute: '2-digit', second: '2-digit'
+                                })}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {order.proof_image_url && (
+                          <div className="detail-block">
+                            <h4 className="detail-block-title">
+                              📸 Payment Proof
+                            </h4>
+                            <div className="proof-thumbnail-container">
+                              <div 
+                                className="proof-thumbnail"
+                                onClick={() => setViewingReceipt(order.proof_image_url)}
+                              >
+                                <img 
+                                  src={order.proof_image_url} 
+                                  alt="Payment proof thumbnail" 
+                                />
+                                <div className="proof-thumbnail-overlay">
+                                  <EyeIcon />
+                                  <span>View</span>
+                                </div>
+                              </div>
+                              <p className="proof-thumbnail-hint">
+                                Click to view full size
+                              </p>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      <p className="review-text">"{order.reviews.text}"</p>
-                    </div>
-                  )}
-                </div>
-              ))}
+                    )}
+
+                    {order.status === 'pending' && (
+                      <button 
+                        className="cancel-order-btn"
+                        onClick={() => cancelOrder(order)}
+                        disabled={cancellingOrder === order.id}
+                      >
+                        {cancellingOrder === order.id ? '⏳ Cancelling...' : '❌ Cancel Order'}
+                      </button>
+                    )}
+
+                    {!order.reviews && reviewForm.orderId !== order.id && order.status === 'completed' && (
+                      <button 
+                        className="write-review-btn"
+                        onClick={() => setReviewForm({ orderId: order.id, rating: 5, text: '' })}
+                      >
+                        ✍️ Write a Review
+                      </button>
+                    )}
+                    
+                    {!order.reviews && reviewForm.orderId === order.id && (
+                      <div className="review-section">
+                        <h4>Rate Your Experience</h4>
+                        <div className="star-rating">
+                          {[1, 2, 3, 4, 5].map(star => (
+                            <span 
+                              key={star} 
+                              className={`star ${star <= reviewForm.rating ? 'active' : ''}`}
+                              onClick={() => setReviewForm({...reviewForm, rating: star})}
+                            >
+                              ★
+                            </span>
+                          ))}
+                        </div>
+                        <textarea 
+                          className="review-input"
+                          placeholder="Would you recommend this coffee? Share your thoughts..."
+                          maxLength={300}
+                          value={reviewForm.text}
+                          onChange={(e) => setReviewForm({...reviewForm, text: e.target.value})}
+                        />
+                        <div className="review-char-count">{reviewForm.text.length} / 300</div>
+                        <div className="review-actions">
+                          <button className="submit-review-btn" onClick={() => submitReview(order.id)}>
+                            Submit Review
+                          </button>
+                          <button 
+                            className="cancel-review-btn"
+                            onClick={() => setReviewForm({orderId: null, rating: 5, text: ''})}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {order.reviews && (
+                      <div className="review-display">
+                        <div className="review-stars">
+                          {'★'.repeat(order.reviews.rating)}{'☆'.repeat(5 - order.reviews.rating)}
+                        </div>
+                        <p className="review-text">"{order.reviews.text}"</p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -994,15 +1348,9 @@ function CustomerDashboard({ user, onLogout }) {
             <div className="profile-grid">
               <div className="profile-card">
                 <div className="profile-card-header">
-                  <h3>
-                    <span className="card-icon">📝</span>
-                    Profile Information
-                  </h3>
+                  <h3><span className="card-icon">📝</span> Profile Information</h3>
                   {!isEditingProfile && (
-                    <button 
-                      className="edit-profile-btn"
-                      onClick={() => setIsEditingProfile(true)}
-                    >
+                    <button className="edit-profile-btn" onClick={() => setIsEditingProfile(true)}>
                       <EditIcon /> Edit
                     </button>
                   )}
@@ -1022,12 +1370,7 @@ function CustomerDashboard({ user, onLogout }) {
                     </div>
                     <div className="form-group">
                       <label>Email</label>
-                      <input
-                        type="email"
-                        value={profile.email}
-                        disabled
-                        className="disabled-input"
-                      />
+                      <input type="email" value={profile.email} disabled className="disabled-input" />
                       <span className="input-hint">Email cannot be changed</span>
                     </div>
                     <div className="profile-actions">
@@ -1041,11 +1384,7 @@ function CustomerDashboard({ user, onLogout }) {
                       >
                         Cancel
                       </button>
-                      <button 
-                        type="submit" 
-                        className="btn-save"
-                        disabled={profileLoading}
-                      >
+                      <button type="submit" className="btn-save" disabled={profileLoading}>
                         {profileLoading ? 'Saving...' : <><SaveIcon /> Save Changes</>}
                       </button>
                     </div>
@@ -1068,9 +1407,7 @@ function CustomerDashboard({ user, onLogout }) {
                       <span className="field-label">Member Since</span>
                       <span className="field-value">
                         {user?.created_at ? new Date(user.created_at).toLocaleDateString('en-PH', {
-                          year: 'numeric',
-                          month: 'long',
-                          day: 'numeric'
+                          year: 'numeric', month: 'long', day: 'numeric'
                         }) : 'N/A'}
                       </span>
                     </div>
@@ -1080,10 +1417,7 @@ function CustomerDashboard({ user, onLogout }) {
 
               <div className="profile-card">
                 <div className="profile-card-header">
-                  <h3>
-                    <span className="card-icon">🔒</span>
-                    Change Password
-                  </h3>
+                  <h3><span className="card-icon">🔒</span> Change Password</h3>
                 </div>
 
                 <form onSubmit={handlePasswordUpdate} className="profile-form">
@@ -1119,11 +1453,7 @@ function CustomerDashboard({ user, onLogout }) {
                       minLength={6}
                     />
                   </div>
-                  <button 
-                    type="submit" 
-                    className="btn-save-password"
-                    disabled={profileLoading}
-                  >
+                  <button type="submit" className="btn-save-password" disabled={profileLoading}>
                     {profileLoading ? 'Updating...' : 'Update Password'}
                   </button>
                 </form>
@@ -1133,9 +1463,7 @@ function CustomerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* ============================================ */}
-      {/* CONFIRMATION MODAL */}
-      {/* ============================================ */}
+      {/* Confirmation Modal */}
       <ConfirmModal
         isOpen={confirmModal.isOpen}
         title={confirmModal.title}
@@ -1146,6 +1474,13 @@ function CustomerDashboard({ user, onLogout }) {
         iconType={confirmModal.iconType}
         onConfirm={confirmModal.onConfirm}
         onCancel={closeConfirm}
+      />
+
+      {/* Receipt Viewer Modal */}
+      <ReceiptViewerModal
+        isOpen={!!viewingReceipt}
+        imageUrl={viewingReceipt}
+        onClose={() => setViewingReceipt(null)}
       />
     </div>
   );
