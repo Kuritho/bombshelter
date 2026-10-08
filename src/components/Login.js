@@ -3,9 +3,7 @@ import { supabase } from '../supabaseClient';
 import './Login.css';
 
 // Import logo
-import logo from '../assets/logo.jpg'; // If in src/assets/
-// OR if in public folder:
-// const logo = '/logo.png';
+import logo from '../assets/logo.jpg';
 
 const Login = ({ onLogin }) => {
   const [email, setEmail] = useState('');
@@ -25,9 +23,11 @@ const Login = ({ onLogin }) => {
 
     try {
       if (isSignUp) {
-        // SIGN UP FLOW - Force role to customer
+        // ============================================
+        // SIGN UP FLOW
+        // ============================================
         const signUpRole = 'customer';
-        
+
         const { data: authData, error: signUpError } = await supabase.auth.signUp({
           email,
           password,
@@ -46,67 +46,92 @@ const Login = ({ onLogin }) => {
           throw signUpError;
         }
 
-        if (authData.user) {
-          console.log('Auth user created:', authData.user.id);
-          
-          // Wait a moment for auth to fully process
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          
-          // Try to get existing profile
-          let { data: existingUser, error: fetchError } = await supabase
+        if (!authData.user) {
+          throw new Error('Sign up failed. Please try again.');
+        }
+
+        console.log('✅ Auth user created:', authData.user.id);
+
+        // Wait briefly for the auth trigger to create the profile
+        // (If you have a DB trigger that inserts into public.users)
+        await new Promise(resolve => setTimeout(resolve, 800));
+
+        // Check if profile exists
+        let { data: existingUser, error: fetchError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', authData.user.id)
+          .maybeSingle();
+
+        // If no profile exists, create one manually
+        if (!existingUser) {
+          console.log('Creating user profile manually...');
+
+          const { data: newUser, error: insertError } = await supabase
             .from('users')
-            .select('*')
-            .eq('id', authData.user.id)
+            .insert([
+              {
+                id: authData.user.id,
+                email: authData.user.email,
+                name: name || authData.user.email.split('@')[0],
+                role: signUpRole
+              }
+            ])
+            .select()
             .maybeSingle();
 
-          // If no profile exists, create one manually
-          if (!existingUser) {
-            console.log('Creating user profile manually...');
-            
-            const { data: newUser, error: insertError } = await supabase
-              .from('users')
-              .insert([
-                {
-                  id: authData.user.id,
-                  email: authData.user.email,
-                  name: name || authData.user.email.split('@')[0],
-                  role: signUpRole
-                }
-              ])
-              .select()
-              .maybeSingle();
-
-            if (insertError) {
-              console.error('Insert error:', insertError);
-              // Check if it's a duplicate key error (profile already exists)
-              if (insertError.code === '23505') { // PostgreSQL unique violation
-                setSuccessMessage('✅ Account already exists! Please check your email for confirmation and try signing in.');
-                setLoading(false);
-                return;
-              }
-              // Check if it's a foreign key violation or other error
-              setSuccessMessage('📧 Account created! Please check your email for confirmation, then sign in.');
-              setLoading(false);
-              return;
+          if (insertError) {
+            // Handle duplicate
+            if (insertError.code === '23505') {
+              console.log('Profile already exists, continuing...');
+            } else {
+              console.error('Profile insert error:', insertError);
+              // Continue anyway — auth user was created
             }
-
-            if (newUser) {
-              console.log('Profile created successfully:', newUser);
-              setSuccessMessage('✅ Account created successfully! Please check your email for confirmation, then sign in.');
-              setLoading(false);
-              // Don't auto-login, let user confirm email first
-              return;
-            }
-          } else {
-            // Profile already exists
-            console.log('Profile already exists:', existingUser);
-            setSuccessMessage('✅ Welcome back! Please check your email for confirmation, then sign in.');
-            setLoading(false);
-            return;
           }
+
+          existingUser = newUser;
+        }
+
+        // ============================================
+        // INSTANT LOGIN: Sign in the user right away
+        // ============================================
+        console.log('🔐 Auto-signing in new user...');
+
+        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+          email,
+          password
+        });
+
+        if (signInError) {
+          console.error('Auto-sign-in failed:', signInError);
+          // Fallback: tell user to sign in manually
+          setSuccessMessage('✅ Account created! Please sign in with your new credentials.');
+          setIsSignUp(false);
+          setPassword('');
+          setLoading(false);
+          return;
+        }
+
+        if (signInData.user) {
+          // Fetch the profile (again, in case trigger was slow)
+          const { data: userData } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', signInData.user.id)
+            .maybeSingle();
+
+          if (!userData) {
+            throw new Error('Profile not found. Please try signing in.');
+          }
+
+          console.log('✅ Signed in as:', userData);
+          onLogin(userData.role, userData);
         }
       } else {
-        // SIGN IN FLOW - Allow all roles to sign in
+        // ============================================
+        // SIGN IN FLOW
+        // ============================================
         const { data: authData, error: signInError } = await supabase.auth.signInWithPassword({
           email,
           password
@@ -115,7 +140,6 @@ const Login = ({ onLogin }) => {
         if (signInError) throw signInError;
 
         if (authData.user) {
-          // Get user profile
           const { data: userData, error: userError } = await supabase
             .from('users')
             .select('*')
@@ -131,11 +155,10 @@ const Login = ({ onLogin }) => {
             throw new Error('User profile not found. Please contact support.');
           }
 
-          // Verify role matches
           if (userData.role !== role) {
             throw new Error(`This account is registered as ${userData.role}. Please select the correct role.`);
           }
-          
+
           onLogin(role, userData);
         }
       }
@@ -240,7 +263,7 @@ const Login = ({ onLogin }) => {
                 </div>
               )}
 
-              {/* Role Selection - Only show during Sign In */}
+              {/* Role Selection - Only during Sign In */}
               {!isSignUp && (
                 <div className="form-group">
                   <label>I am a...</label>
@@ -258,12 +281,14 @@ const Login = ({ onLogin }) => {
                 </div>
               )}
 
-              {/* Sign Up Note - Only show during Sign Up */}
+              {/* Sign Up Note */}
               {isSignUp && (
                 <div className="signup-note">
                   <span className="note-icon">ℹ️</span>
-                  <p>By creating an account, you'll be registered as a <strong>Customer</strong>. 
-                  Employee and Owner accounts are managed by the system administrator.</p>
+                  <p>
+                    By creating an account, you'll be registered as a <strong>Customer</strong>. 
+                    Employee and Owner accounts are managed by the system administrator.
+                  </p>
                 </div>
               )}
 
@@ -299,7 +324,6 @@ const Login = ({ onLogin }) => {
                   setIsSignUp(!isSignUp);
                   setError('');
                   setSuccessMessage('');
-                  // Reset role to customer when switching to sign up
                   if (!isSignUp) {
                     setRole('customer');
                   }
@@ -315,7 +339,7 @@ const Login = ({ onLogin }) => {
           </div>
         </div>
 
-        {/* Decorative right side - Coffee Art */}
+        {/* Decorative right side */}
         <div className="login-art">
           <div className="art-content">
             <div className="art-icon">☕</div>
