@@ -160,6 +160,52 @@ const WarningIcon = () => (
   </svg>
 );
 
+const EyeIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+    <circle cx="12" cy="12" r="3"/>
+  </svg>
+);
+
+const ReceiptIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1-2-1z"/>
+    <path d="M8 7h8"/>
+    <path d="M8 11h8"/>
+    <path d="M8 15h5"/>
+  </svg>
+);
+
+// ============================================
+// HELPERS
+// ============================================
+const getPaymentStatusInfo = (status) => {
+  switch (status) {
+    case 'valid':
+      return { label: '✅ Verified', className: 'valid' };
+    case 'unverified':
+      return { label: '⏳ Awaiting Verification', className: 'unverified' };
+    case 'underpayment':
+      return { label: '⚠️ Underpaid', className: 'underpayment' };
+    case 'overpayment':
+      return { label: '⚠️ Overpaid', className: 'overpayment' };
+    default:
+      return { label: '⏳ Unverified', className: 'unverified' };
+  }
+};
+
+const getStatusBadge = (status) => {
+  const statusMap = {
+    pending: 'badge-warning',
+    preparing: 'badge-info',
+    processing: 'badge-info',
+    completed: 'badge-success',
+    cancelled: 'badge-danger',
+    declined: 'badge-danger'
+  };
+  return statusMap[status] || 'badge-secondary';
+};
+
 // ============================================
 // CONFIRMATION MODAL COMPONENT
 // ============================================
@@ -268,6 +314,12 @@ function OwnerDashboard({ user, onLogout }) {
   const [deletingCustomer, setDeletingCustomer] = useState(null);
 
   // ============================================
+  // ORDER REVIEW MODAL STATE
+  // ============================================
+  const [reviewingOrder, setReviewingOrder] = useState(null);
+  const [viewingReceipt, setViewingReceipt] = useState(null);
+
+  // ============================================
   // CONFIRMATION MODAL STATE
   // ============================================
   const [confirmModal, setConfirmModal] = useState({
@@ -327,7 +379,13 @@ function OwnerDashboard({ user, onLogout }) {
     refetch: refetchMenuItems 
   } = useMenuItems();
   
-  const { orders, refetch: refetchOrders } = useOrders();
+  const { 
+    orders, 
+    updateOrderStatus: updateOrderStatusHook,
+    updatePaymentStatus, 
+    refetch: refetchOrders 
+  } = useOrders();
+  
   const { reviews } = useReviews();
   
   const { 
@@ -696,6 +754,11 @@ function OwnerDashboard({ user, onLogout }) {
       
       alert(`✅ Order status updated to ${newStatus}`);
       await refetchOrders();
+      
+      // Update the reviewing order if it's the same one
+      if (reviewingOrder && reviewingOrder.id === orderId) {
+        setReviewingOrder({ ...reviewingOrder, status: newStatus });
+      }
     } catch (error) {
       alert('❌ Failed to update order status: ' + error.message);
     }
@@ -896,16 +959,6 @@ function OwnerDashboard({ user, onLogout }) {
 
   const analytics = getProductAnalytics();
 
-  const getStatusBadge = (status) => {
-    const statusMap = {
-      pending: 'badge-warning',
-      processing: 'badge-info',
-      completed: 'badge-success',
-      cancelled: 'badge-danger'
-    };
-    return statusMap[status] || 'badge-secondary';
-  };
-
   const getChartData = () => {
     const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     const data = days.map(day => ({ day, amount: 0 }));
@@ -1082,9 +1135,9 @@ function OwnerDashboard({ user, onLogout }) {
             <div className="metric-card">
               <div className="metric-icon">🔄</div>
               <div>
-                <span className="metric-title">Processing</span>
+                <span className="metric-title">Preparing</span>
                 <span className="metric-value">
-                  {orders.filter(o => o.status === 'processing').length}
+                  {orders.filter(o => o.status === 'preparing' || o.status === 'processing').length}
                 </span>
               </div>
             </div>
@@ -1127,16 +1180,22 @@ function OwnerDashboard({ user, onLogout }) {
                 ⏳ Pending
               </button>
               <button 
-                className={`filter-btn ${orderStatus === 'processing' ? 'active' : ''}`}
-                onClick={() => setOrderStatus('processing')}
+                className={`filter-btn ${orderStatus === 'preparing' ? 'active' : ''}`}
+                onClick={() => setOrderStatus('preparing')}
               >
-                🔄 Processing
+                📦 Preparing
               </button>
               <button 
                 className={`filter-btn ${orderStatus === 'completed' ? 'active' : ''}`}
                 onClick={() => setOrderStatus('completed')}
               >
                 ✅ Completed
+              </button>
+              <button 
+                className={`filter-btn ${orderStatus === 'cancelled' ? 'active' : ''}`}
+                onClick={() => setOrderStatus('cancelled')}
+              >
+                ❌ Cancelled
               </button>
             </div>
             <span className="order-count">{filteredOrders.length} orders</span>
@@ -1149,71 +1208,109 @@ function OwnerDashboard({ user, onLogout }) {
                 <p>No orders to display</p>
               </div>
             ) : (
-              filteredOrders.map(order => (
-                <div key={order.id} className="order-card">
-                  <div className="order-header">
-                    <div className="order-info">
-                      <span className="order-id">#{order.id.slice(0, 8)}</span>
-                      <span className="order-time">
-                        {new Date(order.created_at).toLocaleString()}
-                      </span>
-                    </div>
-                    <div className="order-actions">
-                      <span className={`order-status ${getStatusBadge(order.status)}`}>
-                        {order.status.toUpperCase()}
-                      </span>
-                      <div className="status-actions">
-                        {order.status === 'pending' && (
-                          <button 
-                            className="btn btn-primary btn-sm"
-                            onClick={() => updateOrderStatus(order.id, 'processing')}
-                          >
-                            Process
-                          </button>
-                        )}
-                        {order.status === 'processing' && (
-                          <button 
-                            className="btn btn-success btn-sm"
-                            onClick={() => updateOrderStatus(order.id, 'completed')}
-                          >
-                            Complete
-                          </button>
-                        )}
+              filteredOrders.map(order => {
+                const paymentInfo = getPaymentStatusInfo(order.payment_status);
+                const itemCount = order.order_items?.reduce((sum, i) => sum + i.quantity, 0) || 0;
+
+                return (
+                  <div key={order.id} className="order-card">
+                    <div className="order-header">
+                      <div className="order-info">
+                        <span className="order-id">#{order.order_number || order.id.slice(0, 8)}</span>
+                        <span className="order-time">
+                          {new Date(order.created_at).toLocaleString('en-PH', {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </span>
+                      </div>
+                      <div className="order-actions">
+                        <span className={`order-status ${getStatusBadge(order.status)}`}>
+                          {order.status.toUpperCase()}
+                        </span>
                       </div>
                     </div>
-                  </div>
-                  
-                  <div className="order-body">
-                    <div className="order-items">
-                      {order.order_items?.map((item, idx) => (
-                        <div key={idx} className="order-item">
-                          <span className="item-name">{item.menu_items?.name || 'Unknown'}</span>
-                          <span className="item-qty">×{item.quantity}</span>
-                          <span className="item-price">₱{item.price_at_time || item.price}</span>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="order-total">
-                      <span>Total:</span>
-                      <span className="total-amount">₱{order.total_amount.toLocaleString()}</span>
-                    </div>
-                  </div>
-                  
-                  <div className="order-footer">
-                    <span className="customer-name">
-                      👤 {order.users?.name || 'Guest'}
-                      {order.users?.email && (
-                        <span style={{color: '#64748b', fontSize: '0.75rem', marginLeft: '0.5rem'}}>
-                          ({order.users.email})
+
+                    {/* Customer + items summary */}
+                    <div className="order-body">
+                      <div className="order-customer-line">
+                        <span className="customer-label">👤 Customer:</span>
+                        <span className="customer-value">
+                          {order.users?.name || 'Guest'}
+                          {order.users?.email && (
+                            <span className="customer-email-inline">({order.users.email})</span>
+                          )}
                         </span>
+                      </div>
+
+                      <div className="order-items">
+                        {order.order_items?.slice(0, 2).map((item, idx) => (
+                          <div key={idx} className="order-item">
+                            <span className="item-name">{item.menu_items?.name || 'Unknown'}</span>
+                            <span className="item-qty">×{item.quantity}</span>
+                            <span className="item-price">₱{item.price_at_time || item.price}</span>
+                          </div>
+                        ))}
+                        {order.order_items?.length > 2 && (
+                          <div className="order-more-items">
+                            +{order.order_items.length - 2} more item(s)
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="order-total">
+                        <span>Total:</span>
+                        <span className="total-amount">₱{Number(order.total_amount).toLocaleString()}</span>
+                      </div>
+                    </div>
+
+                    {/* Quick info bar */}
+                    <div className="order-quick-info">
+                      <span className={`payment-method-badge ${order.payment_method || 'gcash'}`}>
+                        {order.payment_method === 'paymaya' ? '💚 PayMaya' : '💙 GCash'}
+                      </span>
+                      <span className={`payment-status-badge ${paymentInfo.className}`}>
+                        {paymentInfo.label}
+                      </span>
+                      <span className="order-type-chip">
+                        {order.order_type === 'takeout' ? '📦 Takeout' : '🍽️ Dine In'}
+                      </span>
+                      <span className="item-count-chip">
+                        🛍️ {itemCount} item{itemCount !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+
+                    {/* Action buttons */}
+                    <div className="order-card-actions">
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => setReviewingOrder(order)}
+                      >
+                        <EyeIcon /> Review Order
+                      </button>
+
+                      {order.status === 'pending' && (
+                        <button
+                          className="btn btn-primary btn-sm"
+                          onClick={() => updateOrderStatus(order.id, 'preparing')}
+                        >
+                          📦 Start Preparing
+                        </button>
                       )}
-                    </span>
-                    <span className="payment-method">
-                      {order.payment_status || 'Pending'}
-                    </span>
+                      {order.status === 'preparing' && (
+                        <button
+                          className="btn btn-success btn-sm"
+                          onClick={() => updateOrderStatus(order.id, 'completed')}
+                        >
+                          ✅ Complete
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
@@ -2203,6 +2300,348 @@ function OwnerDashboard({ user, onLogout }) {
                 </form>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================
+          ORDER REVIEW MODAL
+          ============================================ */}
+      {reviewingOrder && (
+        <div 
+          className="modal-overlay" 
+          onClick={() => setReviewingOrder(null)}
+        >
+          <div 
+            className="modal-content order-review-modal" 
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="modal-header order-review-header">
+              <div className="modal-title-with-icon">
+                <ReceiptIcon />
+                <div>
+                  <h2>Order Review</h2>
+                  <span className="modal-subtitle">
+                    #{reviewingOrder.order_number || reviewingOrder.id.slice(0, 8)}
+                  </span>
+                </div>
+              </div>
+              <button 
+                className="modal-close-btn"
+                onClick={() => setReviewingOrder(null)}
+              >
+                <CloseIcon />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="order-review-body">
+              {/* Left column */}
+              <div className="review-column">
+                {/* Customer Card */}
+                <div className="review-block">
+                  <h3 className="review-block-title">
+                    👤 Customer Information
+                  </h3>
+                  <div className="review-info-grid">
+                    <div className="review-info-row">
+                      <span className="review-info-label">Name</span>
+                      <span className="review-info-value">
+                        {reviewingOrder.users?.name || 'Guest'}
+                      </span>
+                    </div>
+                    <div className="review-info-row">
+                      <span className="review-info-label">Email</span>
+                      <span className="review-info-value">
+                        {reviewingOrder.users?.email || '—'}
+                      </span>
+                    </div>
+                    <div className="review-info-row">
+                      <span className="review-info-label">Customer ID</span>
+                      <span className="review-info-value mono">
+                        {reviewingOrder.customer_id?.slice(0, 8) || '—'}...
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Order Info */}
+                <div className="review-block">
+                  <h3 className="review-block-title">
+                    📋 Order Information
+                  </h3>
+                  <div className="review-info-grid">
+                    <div className="review-info-row">
+                      <span className="review-info-label">Status</span>
+                      <span className={`order-status-badge ${reviewingOrder.status}`}>
+                        {reviewingOrder.status.toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="review-info-row">
+                      <span className="review-info-label">Order Type</span>
+                      <span className="review-info-value">
+                        {reviewingOrder.order_type === 'takeout' ? '📦 Takeout' : '🍽️ Dine In'}
+                      </span>
+                    </div>
+                    <div className="review-info-row">
+                      <span className="review-info-label">Placed On</span>
+                      <span className="review-info-value">
+                        {new Date(reviewingOrder.created_at).toLocaleString('en-PH', {
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </span>
+                    </div>
+                    <div className="review-info-row">
+                      <span className="review-info-label">Total</span>
+                      <span className="review-info-value highlight">
+                        ₱{Number(reviewingOrder.total_amount).toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Payment Info */}
+                <div className="review-block">
+                  <h3 className="review-block-title">
+                    💳 Payment Information
+                  </h3>
+                  <div className="review-info-grid">
+                    <div className="review-info-row">
+                      <span className="review-info-label">Method</span>
+                      <span className={`payment-method-badge ${reviewingOrder.payment_method || 'gcash'}`}>
+                        {reviewingOrder.payment_method === 'paymaya' ? '💚 PayMaya' : '💙 GCash'}
+                      </span>
+                    </div>
+                    <div className="review-info-row">
+                      <span className="review-info-label">Payment Status</span>
+                      <span className={`payment-status-badge ${getPaymentStatusInfo(reviewingOrder.payment_status).className}`}>
+                        {getPaymentStatusInfo(reviewingOrder.payment_status).label}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Payment Status Buttons */}
+                  <div className="payment-status-buttons">
+                    <button
+                      className={`payment-status-btn ${reviewingOrder.payment_status === 'valid' ? 'active' : ''}`}
+                      onClick={async () => {
+                        try {
+                          await updatePaymentStatus(reviewingOrder.id, 'valid');
+                          setReviewingOrder({ ...reviewingOrder, payment_status: 'valid' });
+                        } catch (err) {
+                          alert('Failed to update payment status: ' + err.message);
+                        }
+                      }}
+                    >
+                      ✅ Valid
+                    </button>
+                    <button
+                      className={`payment-status-btn ${reviewingOrder.payment_status === 'underpayment' ? 'active' : ''}`}
+                      onClick={async () => {
+                        try {
+                          await updatePaymentStatus(reviewingOrder.id, 'underpayment');
+                          setReviewingOrder({ ...reviewingOrder, payment_status: 'underpayment' });
+                        } catch (err) {
+                          alert('Failed to update payment status: ' + err.message);
+                        }
+                      }}
+                    >
+                      ⚠️ Underpaid
+                    </button>
+                    <button
+                      className={`payment-status-btn ${reviewingOrder.payment_status === 'overpayment' ? 'active' : ''}`}
+                      onClick={async () => {
+                        try {
+                          await updatePaymentStatus(reviewingOrder.id, 'overpayment');
+                          setReviewingOrder({ ...reviewingOrder, payment_status: 'overpayment' });
+                        } catch (err) {
+                          alert('Failed to update payment status: ' + err.message);
+                        }
+                      }}
+                    >
+                      ⚠️ Overpaid
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right column */}
+              <div className="review-column">
+                {/* Order Items */}
+                <div className="review-block">
+                  <h3 className="review-block-title">
+                    🛍️ Order Items
+                  </h3>
+                  <div className="review-items-table">
+                    <div className="review-items-header">
+                      <span>Item</span>
+                      <span>Qty</span>
+                      <span>Price</span>
+                      <span>Subtotal</span>
+                    </div>
+                    {reviewingOrder.order_items?.map((item, idx) => (
+                      <div key={idx} className="review-items-row">
+                        <span className="review-item-name">
+                          {item.menu_items?.name || 'Item'}
+                        </span>
+                        <span className="review-item-qty">×{item.quantity}</span>
+                        <span className="review-item-price">
+                          ₱{Number(item.price_at_time).toFixed(2)}
+                        </span>
+                        <span className="review-item-subtotal">
+                          ₱{(Number(item.price_at_time) * item.quantity).toFixed(2)}
+                        </span>
+                      </div>
+                    ))}
+                    <div className="review-items-total">
+                      <span></span>
+                      <span></span>
+                      <span>Total</span>
+                      <span>₱{Number(reviewingOrder.total_amount).toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Payment Proof */}
+                <div className="review-block">
+                  <h3 className="review-block-title">
+                    📸 Payment Proof
+                  </h3>
+                  {reviewingOrder.proof_image_url ? (
+                    <div className="review-proof-container">
+                      <img
+                        src={reviewingOrder.proof_image_url}
+                        alt="Payment proof"
+                        className="review-proof-image"
+                        onClick={() => setViewingReceipt(reviewingOrder.proof_image_url)}
+                      />
+                      <p className="review-proof-hint">
+                        Click the image to view full size
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="review-proof-placeholder">
+                      <span className="placeholder-icon">📷</span>
+                      <p>No payment proof uploaded</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div className="review-block review-actions-block">
+                  <h3 className="review-block-title">
+                    ⚡ Actions
+                  </h3>
+
+                  {reviewingOrder.status === 'pending' && (
+                    <div className="review-actions-row">
+                      <button
+                        className="btn btn-primary btn-large"
+                        disabled={reviewingOrder.payment_status !== 'valid'}
+                        onClick={async () => {
+                          await updateOrderStatus(reviewingOrder.id, 'preparing');
+                        }}
+                      >
+                        📦 Start Preparing
+                      </button>
+                      {reviewingOrder.payment_status !== 'valid' && (
+                        <p className="action-hint">
+                          ⓘ Verify payment as <strong>Valid</strong> first
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {reviewingOrder.status === 'preparing' && (
+                    <div className="review-actions-row">
+                      <button
+                        className="btn btn-success btn-large"
+                        onClick={async () => {
+                          await updateOrderStatus(reviewingOrder.id, 'completed');
+                        }}
+                      >
+                        ✅ Mark as Completed
+                      </button>
+                    </div>
+                  )}
+
+                  {reviewingOrder.status === 'completed' && (
+                    <div className="review-status-message success">
+                      <span>✅</span>
+                      <p>This order has been completed.</p>
+                    </div>
+                  )}
+
+                  {reviewingOrder.status === 'cancelled' && (
+                    <div className="review-status-message error">
+                      <span>❌</span>
+                      <p>This order was cancelled.</p>
+                    </div>
+                  )}
+
+                  {reviewingOrder.status === 'declined' && (
+                    <div className="review-status-message error">
+                      <span>🚫</span>
+                      <p>This order was declined.</p>
+                    </div>
+                  )}
+
+                  {reviewingOrder.status === 'pending' && (
+                    <button
+                      className="btn btn-danger btn-large decline-order-btn"
+                      onClick={() => {
+                        openConfirm({
+                          title: 'Decline Order?',
+                          message: `Are you sure you want to decline order #${reviewingOrder.order_number || reviewingOrder.id.slice(0, 8)}? This will notify the customer.`,
+                          confirmText: 'Yes, Decline',
+                          cancelText: 'No, Keep',
+                          variant: 'danger',
+                          onConfirm: async () => {
+                            closeConfirm();
+                            await updateOrderStatus(reviewingOrder.id, 'declined');
+                          }
+                        });
+                      }}
+                    >
+                      🚫 Decline Order
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================
+          RECEIPT VIEWER MODAL
+          ============================================ */}
+      {viewingReceipt && (
+        <div 
+          className="receipt-viewer-overlay" 
+          onClick={() => setViewingReceipt(null)}
+        >
+          <div 
+            className="receipt-viewer-content" 
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button 
+              className="receipt-viewer-close"
+              onClick={() => setViewingReceipt(null)}
+            >
+              ×
+            </button>
+            <h3 className="receipt-viewer-title">Payment Proof</h3>
+            <img 
+              src={viewingReceipt} 
+              alt="Payment proof" 
+              className="receipt-viewer-image" 
+            />
           </div>
         </div>
       )}
