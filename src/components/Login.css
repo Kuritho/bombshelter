@@ -842,3 +842,49 @@
     padding: 0.6rem 0.8rem;
   }
 }
+
+/* ============================================
+   PASSWORD FIELD WITH SHOW/HIDE TOGGLE
+   ============================================ */
+
+.password-wrapper {
+  position: relative;
+}
+
+.password-wrapper input {
+  padding-right: 3rem; /* Make room for the eye button */
+}
+
+.password-toggle-btn {
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+  padding: 0;
+  z-index: 2;
+}
+
+.password-toggle-btn:hover {
+  color: #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.password-toggle-btn:active {
+  transform: translateY(-50%) scale(0.92);
+}
+
+.password-toggle-btn svg {
+  pointer-events: none;
+}
