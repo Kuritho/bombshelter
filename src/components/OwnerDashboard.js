@@ -15,7 +15,6 @@ import {
 } from '../utils/storage';
 import './OwnerDashboard.css';
 
-// Import logo
 import logo from '../assets/logo.jpg';
 
 // ============================================
@@ -213,12 +212,12 @@ function ConfirmModal({
   isOpen, 
   title, 
   message, 
-  confirmText = 'Yes, Delete', 
+  confirmText = 'Yes, Confirm', 
   cancelText = 'No, Cancel',
   onConfirm, 
   onCancel,
   isLoading = false,
-  variant = 'danger'
+  variant = 'warning'
 }) {
   if (!isOpen) return null;
 
@@ -260,16 +259,15 @@ function ConfirmModal({
 // MAIN COMPONENT
 // ============================================
 function OwnerDashboard({ user, onLogout }) {
-  // State for active tab
   const [activeTab, setActiveTab] = useState('orders');
   
-  // State for uploading
+  // Upload state
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [selectedImage, setSelectedImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   
-  // State for product form
+  // Product form
   const [uploadForm, setUploadForm] = useState({
     name: '',
     type: 'coffee',
@@ -278,77 +276,70 @@ function OwnerDashboard({ user, onLogout }) {
     is_available: true
   });
   
-  // State for editing product
+  // Edit product
   const [editingProduct, setEditingProduct] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({
-    name: '',
-    type: '',
-    price: '',
-    description: '',
-    is_available: true
+    name: '', type: '', price: '', description: '', is_available: true
   });
   const [editImage, setEditImage] = useState(null);
   const [editImagePreview, setEditImagePreview] = useState(null);
   
-  // State for employees
+  // Employee form
   const [creatingEmployee, setCreatingEmployee] = useState(false);
   const [employeeForm, setEmployeeForm] = useState({
-    email: '',
-    password: '',
-    name: '',
-    role: 'employee'
+    email: '', password: '', name: '', role: 'employee'
   });
   const [employeeError, setEmployeeError] = useState('');
   const [employeeSuccess, setEmployeeSuccess] = useState('');
   const [deletingEmployee, setDeletingEmployee] = useState(null);
   
-  // State for order filtering
+  // Order filter
   const [orderStatus, setOrderStatus] = useState('all');
   
-  // State for deleting product
+  // Delete product
   const [deletingProduct, setDeletingProduct] = useState(null);
 
-  // Customer management state
+  // Customer management
   const [customerSearch, setCustomerSearch] = useState('');
   const [deletingCustomer, setDeletingCustomer] = useState(null);
 
-  // ============================================
-  // ORDER REVIEW MODAL STATE
-  // ============================================
+  // Order review modal
   const [reviewingOrder, setReviewingOrder] = useState(null);
   const [viewingReceipt, setViewingReceipt] = useState(null);
 
-  // ============================================
-  // CONFIRMATION MODAL STATE
-  // ============================================
+  // Confirmation modal
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false,
     title: '',
     message: '',
-    confirmText: 'Yes, Delete',
+    confirmText: 'Yes, Confirm',
     cancelText: 'No, Cancel',
     onConfirm: null,
-    variant: 'danger'
+    variant: 'warning',
+    isLoading: false
   });
 
-  const openConfirm = ({ title, message, confirmText, cancelText, onConfirm, variant = 'danger' }) => {
+  const openConfirm = ({ 
+    title, message, confirmText, cancelText, onConfirm, variant = 'warning' 
+  }) => {
     setConfirmModal({
       isOpen: true,
       title,
       message,
-      confirmText: confirmText || 'Yes, Delete',
+      confirmText: confirmText || 'Yes, Confirm',
       cancelText: cancelText || 'No, Cancel',
       onConfirm,
-      variant
+      variant,
+      isLoading: false
     });
   };
 
   const closeConfirm = () => {
-    setConfirmModal(prev => ({ ...prev, isOpen: false, onConfirm: null }));
+    setConfirmModal(prev => ({ ...prev, isOpen: false, onConfirm: null, isLoading: false }));
   };
 
-  // State for storage
+  // Storage state
   const [bucketExists, setBucketExists] = useState(false);
   const [storageInitialized, setStorageInitialized] = useState(false);
   const [storageError, setStorageError] = useState(null);
@@ -359,9 +350,7 @@ function OwnerDashboard({ user, onLogout }) {
     email: user?.email || '',
   });
   const [passwordData, setPasswordData] = useState({
-    currentPassword: '',
-    newPassword: '',
-    confirmPassword: '',
+    currentPassword: '', newPassword: '', confirmPassword: '',
   });
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileSuccess, setProfileSuccess] = useState('');
@@ -381,9 +370,8 @@ function OwnerDashboard({ user, onLogout }) {
   
   const { 
     orders, 
-    updateOrderStatus: updateOrderStatusHook,
     updatePaymentStatus, 
-    refetch: refetchOrders 
+    refresh: refetchOrders 
   } = useOrders();
   
   const { reviews } = useReviews();
@@ -406,12 +394,11 @@ function OwnerDashboard({ user, onLogout }) {
   } = useCustomers();
 
   // ============================================
-  // STORAGE CHECK ON MOUNT
+  // STORAGE CHECK
   // ============================================
   useEffect(() => {
     const checkStorage = async () => {
       try {
-        console.log('🔧 Checking storage...');
         setStorageInitialized(false);
         setStorageError(null);
         
@@ -420,22 +407,14 @@ function OwnerDashboard({ user, onLogout }) {
         if (initialized) {
           const accessible = await testDirectBucketAccess();
           setBucketExists(accessible);
-          
-          if (accessible) {
-            console.log('✅ Storage is ready!');
-          } else {
-            console.warn('⚠️ Storage initialized but not accessible');
-            setStorageError('Storage bucket exists but is not accessible. Please check permissions.');
-          }
+          if (!accessible) setStorageError('Storage bucket is not accessible.');
         } else {
-          console.warn('⚠️ Storage bucket not found');
           setBucketExists(false);
-          setStorageError('Storage bucket "product-images" not found. Please create it in Supabase dashboard.');
+          setStorageError('Storage bucket "product-images" not found.');
         }
         
         setStorageInitialized(true);
       } catch (error) {
-        console.error('❌ Storage check error:', error);
         setStorageError(error.message || 'Failed to initialize storage');
         setStorageInitialized(true);
         setBucketExists(false);
@@ -446,31 +425,47 @@ function OwnerDashboard({ user, onLogout }) {
   }, []);
 
   // ============================================
-  // EMPLOYEE HANDLERS
+  // EMPLOYEE HANDLERS — WITH CONFIRMATION
   // ============================================
-  const handleCreateEmployee = async (e) => {
+  const handleCreateEmployee = (e) => {
     e.preventDefault();
-    setEmployeeError('');
-    setEmployeeSuccess('');
-    setCreatingEmployee(true);
-
-    try {
-      const newEmployee = await createEmployee({
-        email: employeeForm.email,
-        password: employeeForm.password,
-        name: employeeForm.name
-      });
-
-      if (newEmployee) {
-        setEmployeeSuccess(`✅ Employee account created successfully! Email: ${employeeForm.email}`);
-        setEmployeeForm({ email: '', password: '', name: '', role: 'employee' });
-      }
-    } catch (error) {
-      console.error('Employee creation error:', error);
-      setEmployeeError(error.message || 'Failed to create employee account');
-    } finally {
-      setCreatingEmployee(false);
+    
+    // Validate first
+    if (!employeeForm.name.trim() || !employeeForm.email.trim() || !employeeForm.password) {
+      setEmployeeError('Please fill in all fields');
+      return;
     }
+    
+    openConfirm({
+      title: 'Create Employee Account?',
+      message: `Are you sure you want to create an account for "${employeeForm.name}" (${employeeForm.email})? They will be able to log in as an employee immediately.`,
+      confirmText: 'Yes, Create',
+      cancelText: 'No, Cancel',
+      variant: 'warning',
+      onConfirm: async () => {
+        closeConfirm();
+        setEmployeeError('');
+        setEmployeeSuccess('');
+        setCreatingEmployee(true);
+
+        try {
+          const newEmployee = await createEmployee({
+            email: employeeForm.email,
+            password: employeeForm.password,
+            name: employeeForm.name
+          });
+
+          if (newEmployee) {
+            setEmployeeSuccess(`✅ Employee account created! Email: ${employeeForm.email}`);
+            setEmployeeForm({ email: '', password: '', name: '', role: 'employee' });
+          }
+        } catch (error) {
+          setEmployeeError(error.message || 'Failed to create employee account');
+        } finally {
+          setCreatingEmployee(false);
+        }
+      }
+    });
   };
 
   const handleDeleteEmployee = (employeeId, employeeName) => {
@@ -487,7 +482,6 @@ function OwnerDashboard({ user, onLogout }) {
           await deleteEmployee(employeeId);
           alert('✅ Employee deleted successfully!');
         } catch (error) {
-          console.error('Error deleting employee:', error);
           alert('❌ Failed to delete employee: ' + error.message);
         } finally {
           setDeletingEmployee(null);
@@ -508,18 +502,14 @@ function OwnerDashboard({ user, onLogout }) {
         e.target.value = '';
         return;
       }
-
       if (file.size > 5 * 1024 * 1024) {
         alert('Image size must be less than 5MB');
         e.target.value = '';
         return;
       }
-
       setSelectedImage(file);
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result);
-      };
+      reader.onloadend = () => setImagePreview(reader.result);
       reader.readAsDataURL(file);
     }
   };
@@ -533,103 +523,79 @@ function OwnerDashboard({ user, onLogout }) {
         e.target.value = '';
         return;
       }
-
       if (file.size > 5 * 1024 * 1024) {
         alert('Image size must be less than 5MB');
         e.target.value = '';
         return;
       }
-
       setEditImage(file);
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setEditImagePreview(reader.result);
-      };
+      reader.onloadend = () => setEditImagePreview(reader.result);
       reader.readAsDataURL(file);
     }
   };
 
-  const uploadImage = async (file) => {
-    return uploadImageUtil(file);
-  };
-
-  const deleteImage = async (imageUrl) => {
-    return deleteImageUtil(imageUrl);
-  };
+  const uploadImage = async (file) => uploadImageUtil(file);
+  const deleteImage = async (imageUrl) => deleteImageUtil(imageUrl);
 
   // ============================================
-  // PRODUCT HANDLERS
+  // PRODUCT HANDLERS — WITH CONFIRMATION
   // ============================================
-  const handleUploadProduct = async (e) => {
+  const handleUploadProduct = (e) => {
     e.preventDefault();
     
-    if (!uploadForm.name.trim()) {
-      alert('Please enter a product name');
-      return;
-    }
+    // Validate
+    if (!uploadForm.name.trim()) { alert('Please enter a product name'); return; }
+    if (!uploadForm.price || parseFloat(uploadForm.price) <= 0) { alert('Please enter a valid price'); return; }
+    if (!uploadForm.description.trim()) { alert('Please enter a product description'); return; }
+    if (!selectedImage) { alert('Please select an image for the product'); return; }
 
-    if (!uploadForm.price || parseFloat(uploadForm.price) <= 0) {
-      alert('Please enter a valid price');
-      return;
-    }
+    openConfirm({
+      title: 'Add New Product?',
+      message: `Are you sure you want to add "${uploadForm.name}" to the menu at ₱${uploadForm.price}?`,
+      confirmText: 'Yes, Add Product',
+      cancelText: 'No, Cancel',
+      variant: 'warning',
+      onConfirm: async () => {
+        closeConfirm();
+        setUploading(true);
+        setUploadProgress(0);
 
-    if (!uploadForm.description.trim()) {
-      alert('Please enter a product description');
-      return;
-    }
+        try {
+          setUploadProgress(20);
+          const imageUrl = await uploadImage(selectedImage);
+          setUploadProgress(70);
 
-    if (!selectedImage) {
-      alert('Please select an image for the product');
-      return;
-    }
+          const productData = {
+            name: uploadForm.name.trim(),
+            type: uploadForm.type,
+            price: parseFloat(uploadForm.price),
+            description: uploadForm.description.trim(),
+            image_url: imageUrl,
+            is_available: uploadForm.is_available
+          };
 
-    setUploading(true);
-    setUploadProgress(0);
-
-    try {
-      setUploadProgress(20);
-      console.log('📤 Starting image upload...');
-      const imageUrl = await uploadImage(selectedImage);
-      setUploadProgress(70);
-      console.log('✅ Image uploaded:', imageUrl);
-
-      const productData = {
-        name: uploadForm.name.trim(),
-        type: uploadForm.type,
-        price: parseFloat(uploadForm.price),
-        description: uploadForm.description.trim(),
-        image_url: imageUrl,
-        is_available: uploadForm.is_available
-      };
-
-      console.log('📦 Creating product:', productData);
-
-      await addMenuItem(productData);
-      setUploadProgress(100);
-      
-      setUploadForm({
-        name: '',
-        type: 'coffee',
-        price: '',
-        description: '',
-        is_available: true
-      });
-      setSelectedImage(null);
-      setImagePreview(null);
-      
-      const fileInput = document.getElementById('product-image-input');
-      if (fileInput) fileInput.value = '';
-      
-      await refetchMenuItems();
-      alert('✅ Product uploaded successfully!');
-      setActiveTab('menu');
-    } catch (error) {
-      console.error('❌ Upload error:', error);
-      alert('❌ Failed to upload product: ' + error.message);
-    } finally {
-      setUploading(false);
-      setUploadProgress(0);
-    }
+          await addMenuItem(productData);
+          setUploadProgress(100);
+          
+          setUploadForm({ name: '', type: 'coffee', price: '', description: '', is_available: true });
+          setSelectedImage(null);
+          setImagePreview(null);
+          
+          const fileInput = document.getElementById('product-image-input');
+          if (fileInput) fileInput.value = '';
+          
+          await refetchMenuItems();
+          alert('✅ Product uploaded successfully!');
+          setActiveTab('menu');
+        } catch (error) {
+          alert('❌ Failed to upload product: ' + error.message);
+        } finally {
+          setUploading(false);
+          setUploadProgress(0);
+        }
+      }
+    });
   };
 
   const handleEditProduct = (product) => {
@@ -645,68 +611,63 @@ function OwnerDashboard({ user, onLogout }) {
     setIsEditing(true);
   };
 
-  const handleUpdateProduct = async (e) => {
+  const handleUpdateProduct = (e) => {
     e.preventDefault();
     
-    if (!editForm.name.trim()) {
-      alert('Please enter a product name');
-      return;
-    }
+    // Validate
+    if (!editForm.name.trim()) { alert('Please enter a product name'); return; }
+    if (!editForm.price || parseFloat(editForm.price) <= 0) { alert('Please enter a valid price'); return; }
+    if (!editForm.description.trim()) { alert('Please enter a product description'); return; }
 
-    if (!editForm.price || parseFloat(editForm.price) <= 0) {
-      alert('Please enter a valid price');
-      return;
-    }
+    openConfirm({
+      title: 'Save Changes?',
+      message: `Are you sure you want to update "${editingProduct.name}"? These changes will be visible to all customers immediately.`,
+      confirmText: 'Yes, Save Changes',
+      cancelText: 'No, Cancel',
+      variant: 'warning',
+      onConfirm: async () => {
+        closeConfirm();
+        setUploading(true);
+        setUploadProgress(0);
 
-    if (!editForm.description.trim()) {
-      alert('Please enter a product description');
-      return;
-    }
+        try {
+          let imageUrl = editingProduct.image_url;
 
-    setUploading(true);
-    setUploadProgress(0);
+          if (editImage) {
+            setUploadProgress(30);
+            if (editingProduct.image_url) await deleteImage(editingProduct.image_url);
+            imageUrl = await uploadImage(editImage);
+            setUploadProgress(70);
+          }
 
-    try {
-      let imageUrl = editingProduct.image_url;
-
-      if (editImage) {
-        setUploadProgress(30);
-        if (editingProduct.image_url) {
-          await deleteImage(editingProduct.image_url);
+          const updatedProduct = {
+            name: editForm.name.trim(),
+            type: editForm.type,
+            price: parseFloat(editForm.price),
+            description: editForm.description.trim(),
+            image_url: imageUrl,
+            is_available: editForm.is_available,
+            updated_at: new Date().toISOString()
+          };
+          
+          await updateMenuItem(editingProduct.id, updatedProduct);
+          
+          setUploadProgress(100);
+          setIsEditing(false);
+          setEditingProduct(null);
+          setEditImage(null);
+          setEditImagePreview(null);
+          
+          alert('✅ Product updated successfully!');
+          await refetchMenuItems();
+        } catch (error) {
+          alert('❌ Failed to update product: ' + error.message);
+        } finally {
+          setUploading(false);
+          setUploadProgress(0);
         }
-        imageUrl = await uploadImage(editImage);
-        setUploadProgress(70);
       }
-
-      const updatedProduct = {
-        name: editForm.name.trim(),
-        type: editForm.type,
-        price: parseFloat(editForm.price),
-        description: editForm.description.trim(),
-        image_url: imageUrl,
-        is_available: editForm.is_available,
-        updated_at: new Date().toISOString()
-      };
-
-      console.log('🔄 Updating product:', editingProduct.id, updatedProduct);
-      
-      await updateMenuItem(editingProduct.id, updatedProduct);
-      
-      setUploadProgress(100);
-      setIsEditing(false);
-      setEditingProduct(null);
-      setEditImage(null);
-      setEditImagePreview(null);
-      
-      alert('✅ Product updated successfully!');
-      await refetchMenuItems();
-    } catch (error) {
-      console.error('Update error:', error);
-      alert('❌ Failed to update product: ' + error.message);
-    } finally {
-      setUploading(false);
-      setUploadProgress(0);
-    }
+    });
   };
 
   const handleDeleteProduct = (product) => {
@@ -720,18 +681,12 @@ function OwnerDashboard({ user, onLogout }) {
         setDeletingProduct(product.id);
         closeConfirm();
         try {
-          if (product.image_url) {
-            console.log('🗑️ Deleting image:', product.image_url);
-            await deleteImage(product.image_url);
-          }
-
-          console.log('🗑️ Deleting product:', product.id);
+          if (product.image_url) await deleteImage(product.image_url);
           await deleteMenuItem(product.id);
           
           alert('✅ Product deleted successfully!');
           await refetchMenuItems();
         } catch (error) {
-          console.error('Delete error:', error);
           alert('❌ Failed to delete product: ' + error.message);
         } finally {
           setDeletingProduct(null);
@@ -741,36 +696,100 @@ function OwnerDashboard({ user, onLogout }) {
   };
 
   // ============================================
-  // ORDER HANDLERS
+  // ORDER HANDLERS — WITH CONFIRMATION
   // ============================================
-  const updateOrderStatus = async (orderId, newStatus) => {
-    try {
-      const { error } = await supabase
-        .from('orders')
-        .update({ status: newStatus })
-        .eq('id', orderId);
+  const updateOrderStatus = (orderId, newStatus) => {
+    const statusLabels = {
+      preparing: 'Preparing',
+      processing: 'Processing',
+      completed: 'Completed',
+      declined: 'Declined',
+      cancelled: 'Cancelled'
+    };
+    const label = statusLabels[newStatus] || newStatus;
 
-      if (error) throw error;
-      
-      alert(`✅ Order status updated to ${newStatus}`);
-      await refetchOrders();
-      
-      // Update the reviewing order if it's the same one
-      if (reviewingOrder && reviewingOrder.id === orderId) {
-        setReviewingOrder({ ...reviewingOrder, status: newStatus });
+    openConfirm({
+      title: `${label} Order?`,
+      message: `Are you sure you want to mark this order as "${label}"? This action will be reflected immediately.`,
+      confirmText: `Yes, Mark as ${label}`,
+      cancelText: 'No, Cancel',
+      variant: newStatus === 'declined' || newStatus === 'cancelled' ? 'danger' : 'warning',
+      onConfirm: async () => {
+        // Show loading state
+        setConfirmModal(prev => ({ ...prev, isLoading: true }));
+        
+        try {
+          const { error } = await supabase
+            .from('orders')
+            .update({ status: newStatus })
+            .eq('id', orderId);
+
+          if (error) throw error;
+          
+          await refetchOrders();
+          
+          if (reviewingOrder && reviewingOrder.id === orderId) {
+            setReviewingOrder({ ...reviewingOrder, status: newStatus });
+          }
+          
+          closeConfirm();
+          alert(`✅ Order status updated to "${label}"`);
+        } catch (error) {
+          setConfirmModal(prev => ({ ...prev, isLoading: false }));
+          alert('❌ Failed to update order status: ' + error.message);
+        }
       }
-    } catch (error) {
-      alert('❌ Failed to update order status: ' + error.message);
-    }
+    });
+  };
+
+  const handleProcessOrder = (order) => {
+    setReviewingOrder(order);
   };
 
   // ============================================
-  // CUSTOMER HANDLERS
+  // PAYMENT STATUS — WITH CONFIRMATION
+  // ============================================
+  const handleUpdatePaymentStatus = (orderId, newPaymentStatus) => {
+    const statusLabels = {
+      valid: 'Verified',
+      underpayment: 'Underpaid',
+      overpayment: 'Overpaid'
+    };
+    const label = statusLabels[newPaymentStatus] || newPaymentStatus;
+
+    openConfirm({
+      title: `Mark Payment as ${label}?`,
+      message: `Are you sure you want to mark this order's payment as "${label}"? The customer will see this update.`,
+      confirmText: `Yes, Mark as ${label}`,
+      cancelText: 'No, Cancel',
+      variant: newPaymentStatus === 'valid' ? 'warning' : 'danger',
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isLoading: true }));
+        
+        try {
+          await updatePaymentStatus(orderId, newPaymentStatus);
+          
+          if (reviewingOrder && reviewingOrder.id === orderId) {
+            setReviewingOrder({ ...reviewingOrder, payment_status: newPaymentStatus });
+          }
+          
+          closeConfirm();
+          alert(`✅ Payment status updated to "${label}"`);
+        } catch (err) {
+          setConfirmModal(prev => ({ ...prev, isLoading: false }));
+          alert('❌ Failed to update payment status: ' + err.message);
+        }
+      }
+    });
+  };
+
+  // ============================================
+  // CUSTOMER HANDLERS — WITH CONFIRMATION
   // ============================================
   const handleDeleteCustomer = (customer) => {
     openConfirm({
       title: 'Delete Customer?',
-      message: `Are you sure you want to delete customer "${customer.name}" (${customer.email})? This action cannot be undone.`,
+      message: `Are you sure you want to delete customer "${customer.name}" (${customer.email})? This will remove ALL their data including orders. This action cannot be undone.`,
       confirmText: 'Yes, Delete',
       cancelText: 'No, Cancel',
       variant: 'danger',
@@ -781,7 +800,6 @@ function OwnerDashboard({ user, onLogout }) {
           await deleteCustomer(customer.id);
           alert('✅ Customer deleted successfully!');
         } catch (error) {
-          console.error('Error deleting customer:', error);
           alert('❌ Failed to delete customer: ' + error.message);
         } finally {
           setDeletingCustomer(null);
@@ -806,7 +824,7 @@ function OwnerDashboard({ user, onLogout }) {
   };
 
   // ============================================
-  // LOGOUT
+  // LOGOUT — WITH CONFIRMATION
   // ============================================
   const handleLogout = () => {
     openConfirm({
@@ -823,75 +841,93 @@ function OwnerDashboard({ user, onLogout }) {
   };
 
   // ============================================
-  // PROFILE HANDLERS
+  // PROFILE HANDLERS — WITH CONFIRMATION
   // ============================================
-  const handleProfileUpdate = async (e) => {
+  const handleProfileUpdate = (e) => {
     e.preventDefault();
-    setProfileLoading(true);
-    setProfileError('');
-    setProfileSuccess('');
-
-    try {
-      const { error: updateError } = await supabase
-        .from('users')
-        .update({ name: profile.name })
-        .eq('id', user.id);
-
-      if (updateError) throw updateError;
-
-      setProfileSuccess('✅ Profile updated successfully!');
-      setIsEditingProfile(false);
-      
-      user.name = profile.name;
-      
-      setTimeout(() => setProfileSuccess(''), 3000);
-    } catch (err) {
-      console.error('Profile update error:', err);
-      setProfileError(err.message || 'Failed to update profile');
-    } finally {
-      setProfileLoading(false);
+    
+    if (profile.name === user?.name) {
+      alert('No changes to save.');
+      return;
     }
+
+    openConfirm({
+      title: 'Update Profile?',
+      message: `Are you sure you want to change your name to "${profile.name}"?`,
+      confirmText: 'Yes, Update',
+      cancelText: 'No, Cancel',
+      variant: 'warning',
+      onConfirm: async () => {
+        closeConfirm();
+        setProfileLoading(true);
+        setProfileError('');
+        setProfileSuccess('');
+
+        try {
+          const { error: updateError } = await supabase
+            .from('users')
+            .update({ name: profile.name })
+            .eq('id', user.id);
+
+          if (updateError) throw updateError;
+
+          setProfileSuccess('✅ Profile updated successfully!');
+          setIsEditingProfile(false);
+          user.name = profile.name;
+          
+          setTimeout(() => setProfileSuccess(''), 3000);
+        } catch (err) {
+          setProfileError(err.message || 'Failed to update profile');
+        } finally {
+          setProfileLoading(false);
+        }
+      }
+    });
   };
 
-  const handlePasswordUpdate = async (e) => {
+  const handlePasswordUpdate = (e) => {
     e.preventDefault();
-    setProfileLoading(true);
     setProfileError('');
     setProfileSuccess('');
 
     if (passwordData.newPassword !== passwordData.confirmPassword) {
       setProfileError('New passwords do not match');
-      setProfileLoading(false);
       return;
     }
 
     if (passwordData.newPassword.length < 6) {
       setProfileError('New password must be at least 6 characters');
-      setProfileLoading(false);
       return;
     }
 
-    try {
-      const { error: passwordError } = await supabase.auth.updateUser({
-        password: passwordData.newPassword
-      });
+    openConfirm({
+      title: 'Change Password?',
+      message: 'Are you sure you want to change your account password? You will need to use the new password on next login.',
+      confirmText: 'Yes, Change Password',
+      cancelText: 'No, Cancel',
+      variant: 'warning',
+      onConfirm: async () => {
+        closeConfirm();
+        setProfileLoading(true);
 
-      if (passwordError) throw passwordError;
+        try {
+          const { error: passwordError } = await supabase.auth.updateUser({
+            password: passwordData.newPassword
+          });
 
-      setProfileSuccess('✅ Password updated successfully!');
-      setPasswordData({
-        currentPassword: '',
-        newPassword: '',
-        confirmPassword: '',
-      });
-      
-      setTimeout(() => setProfileSuccess(''), 3000);
-    } catch (err) {
-      console.error('Password update error:', err);
-      setProfileError(err.message || 'Failed to update password');
-    } finally {
-      setProfileLoading(false);
-    }
+          if (passwordError) throw passwordError;
+
+          setProfileSuccess('✅ Password updated successfully!');
+          setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+          
+          setTimeout(() => setProfileSuccess(''), 3000);
+        } catch (err) {
+          setProfileError(err.message || 'Failed to update password');
+        } finally {
+          setProfileLoading(false);
+        }
+      }
+    });
   };
 
   // ============================================
@@ -899,6 +935,9 @@ function OwnerDashboard({ user, onLogout }) {
   // ============================================
   const filteredOrders = orders.filter(order => {
     if (orderStatus === 'all') return true;
+    if (orderStatus === 'preparing') {
+      return order.status === 'preparing' || order.status === 'processing';
+    }
     return order.status === orderStatus;
   });
 
@@ -915,8 +954,7 @@ function OwnerDashboard({ user, onLogout }) {
     
     const monthly = completedOrders.filter(o => {
       const orderDate = new Date(o.created_at);
-      return orderDate.getMonth() === thisMonth && 
-             orderDate.getFullYear() === thisYear;
+      return orderDate.getMonth() === thisMonth && orderDate.getFullYear() === thisYear;
     });
     
     const yearly = completedOrders.filter(o => {
@@ -935,7 +973,6 @@ function OwnerDashboard({ user, onLogout }) {
 
   const getProductAnalytics = () => {
     const productSales = {};
-    
     orders.forEach(order => {
       order.order_items?.forEach(item => {
         const productName = item.menu_items?.name || 'Unknown';
@@ -949,12 +986,8 @@ function OwnerDashboard({ user, onLogout }) {
         productSales[productName].sales += item.quantity;
       });
     });
-    
     const sorted = Object.values(productSales).sort((a, b) => b.sales - a.sales);
-    return {
-      best: sorted.slice(0, 3),
-      worst: sorted.slice(-3).reverse()
-    };
+    return { best: sorted.slice(0, 3), worst: sorted.slice(-3).reverse() };
   };
 
   const analytics = getProductAnalytics();
@@ -962,7 +995,6 @@ function OwnerDashboard({ user, onLogout }) {
   const getChartData = () => {
     const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     const data = days.map(day => ({ day, amount: 0 }));
-    
     orders.forEach(order => {
       if (order.status === 'completed') {
         const orderDate = new Date(order.created_at);
@@ -973,7 +1005,6 @@ function OwnerDashboard({ user, onLogout }) {
         }
       }
     });
-    
     return data;
   };
 
@@ -996,11 +1027,7 @@ function OwnerDashboard({ user, onLogout }) {
       <header className="dashboard-header">
         <div className="header-left">
           <div className="brand-logo">
-            <img 
-              src={logo} 
-              alt="1of1 Coffee" 
-              className="brand-logo-image"
-            />
+            <img src={logo} alt="1of1 Coffee" className="brand-logo-image" />
             <div className="brand-text">
               <h1>1of1 Coffee</h1>
               <span className="brand-subtitle">Owner Dashboard</span>
@@ -1020,87 +1047,50 @@ function OwnerDashboard({ user, onLogout }) {
 
       {/* Navigation */}
       <nav className="dashboard-nav">
-        <button 
-          className={`nav-tab ${activeTab === 'orders' ? 'active' : ''}`}
-          onClick={() => setActiveTab('orders')}
-        >
+        <button className={`nav-tab ${activeTab === 'orders' ? 'active' : ''}`} onClick={() => setActiveTab('orders')}>
           <OrdersIcon />
           <span>Orders</span>
           {orders.filter(o => o.status === 'pending').length > 0 && (
-            <span className="nav-badge">
-              {orders.filter(o => o.status === 'pending').length}
-            </span>
+            <span className="nav-badge">{orders.filter(o => o.status === 'pending').length}</span>
           )}
         </button>
-        <button 
-          className={`nav-tab ${activeTab === 'menu' ? 'active' : ''}`}
-          onClick={() => setActiveTab('menu')}
-        >
+        <button className={`nav-tab ${activeTab === 'menu' ? 'active' : ''}`} onClick={() => setActiveTab('menu')}>
           <MenuIcon />
           <span>Menu</span>
         </button>
-        <button 
-          className={`nav-tab ${activeTab === 'add-product' ? 'active' : ''}`}
-          onClick={() => setActiveTab('add-product')}
-        >
+        <button className={`nav-tab ${activeTab === 'add-product' ? 'active' : ''}`} onClick={() => setActiveTab('add-product')}>
           <UploadIcon />
           <span>Add Product</span>
         </button>
-        <button 
-          className={`nav-tab ${activeTab === 'analytics' ? 'active' : ''}`}
-          onClick={() => setActiveTab('analytics')}
-        >
+        <button className={`nav-tab ${activeTab === 'analytics' ? 'active' : ''}`} onClick={() => setActiveTab('analytics')}>
           <ChartIcon />
           <span>Analytics</span>
         </button>
-        <button 
-          className={`nav-tab ${activeTab === 'feedback' ? 'active' : ''}`}
-          onClick={() => setActiveTab('feedback')}
-        >
+        <button className={`nav-tab ${activeTab === 'feedback' ? 'active' : ''}`} onClick={() => setActiveTab('feedback')}>
           <StarIcon />
           <span>Reviews</span>
         </button>
-        <button 
-          className={`nav-tab ${activeTab === 'employees' ? 'active' : ''}`}
-          onClick={() => {
-            setActiveTab('employees');
-            fetchEmployees();
-          }}
-        >
+        <button className={`nav-tab ${activeTab === 'employees' ? 'active' : ''}`} onClick={() => { setActiveTab('employees'); fetchEmployees(); }}>
           <UsersIcon />
           <span>Employees</span>
         </button>
-        <button 
-          className={`nav-tab ${activeTab === 'customers' ? 'active' : ''}`}
-          onClick={() => {
-            setActiveTab('customers');
-            fetchCustomers();
-          }}
-        >
+        <button className={`nav-tab ${activeTab === 'customers' ? 'active' : ''}`} onClick={() => { setActiveTab('customers'); fetchCustomers(); }}>
           <CustomersIcon />
           <span>Customers</span>
         </button>
-        <button 
-          className={`nav-tab ${activeTab === 'profile' ? 'active' : ''}`}
-          onClick={() => {
-            setActiveTab('profile');
-            setProfileError('');
-            setProfileSuccess('');
-          }}
-        >
+        <button className={`nav-tab ${activeTab === 'profile' ? 'active' : ''}`} onClick={() => { setActiveTab('profile'); setProfileError(''); setProfileSuccess(''); }}>
           <UserIcon />
           <span>Profile</span>
         </button>
       </nav>
 
-      {/* Storage Status Banner */}
+      {/* Storage warning */}
       {storageInitialized && !bucketExists && (
         <div className="storage-warning">
           <strong>⚠️ Storage bucket "product-images" not found.</strong>
           <br />
           <span style={{fontSize: '0.9rem'}}>
-            Please create it in Supabase dashboard: 
-            <strong> Storage → Create bucket → Name: product-images → Public: ON</strong>
+            Create it in Supabase: <strong>Storage → Create bucket → Name: product-images → Public: ON</strong>
           </span>
           {storageError && (
             <div style={{marginTop: '0.5rem', fontSize: '0.85rem', color: '#fca5a5'}}>
@@ -1127,27 +1117,21 @@ function OwnerDashboard({ user, onLogout }) {
               <div className="metric-icon">⏳</div>
               <div>
                 <span className="metric-title">Pending</span>
-                <span className="metric-value">
-                  {orders.filter(o => o.status === 'pending').length}
-                </span>
+                <span className="metric-value">{orders.filter(o => o.status === 'pending').length}</span>
               </div>
             </div>
             <div className="metric-card">
               <div className="metric-icon">🔄</div>
               <div>
                 <span className="metric-title">Preparing</span>
-                <span className="metric-value">
-                  {orders.filter(o => o.status === 'preparing' || o.status === 'processing').length}
-                </span>
+                <span className="metric-value">{orders.filter(o => o.status === 'preparing' || o.status === 'processing').length}</span>
               </div>
             </div>
             <div className="metric-card">
               <div className="metric-icon">✅</div>
               <div>
                 <span className="metric-title">Completed</span>
-                <span className="metric-value">
-                  {orders.filter(o => o.status === 'completed').length}
-                </span>
+                <span className="metric-value">{orders.filter(o => o.status === 'completed').length}</span>
               </div>
             </div>
             <div className="metric-card highlight">
@@ -1155,11 +1139,7 @@ function OwnerDashboard({ user, onLogout }) {
               <div>
                 <span className="metric-title">Total Revenue</span>
                 <span className="metric-value">
-                  ₱{orders
-                    .filter(o => o.status === 'completed')
-                    .reduce((sum, o) => sum + o.total_amount, 0)
-                    .toLocaleString()
-                  }
+                  ₱{orders.filter(o => o.status === 'completed').reduce((sum, o) => sum + o.total_amount, 0).toLocaleString()}
                 </span>
               </div>
             </div>
@@ -1167,36 +1147,11 @@ function OwnerDashboard({ user, onLogout }) {
 
           <div className="orders-toolbar">
             <div className="filter-group">
-              <button 
-                className={`filter-btn ${orderStatus === 'all' ? 'active' : ''}`}
-                onClick={() => setOrderStatus('all')}
-              >
-                All Orders
-              </button>
-              <button 
-                className={`filter-btn ${orderStatus === 'pending' ? 'active' : ''}`}
-                onClick={() => setOrderStatus('pending')}
-              >
-                ⏳ Pending
-              </button>
-              <button 
-                className={`filter-btn ${orderStatus === 'preparing' ? 'active' : ''}`}
-                onClick={() => setOrderStatus('preparing')}
-              >
-                📦 Preparing
-              </button>
-              <button 
-                className={`filter-btn ${orderStatus === 'completed' ? 'active' : ''}`}
-                onClick={() => setOrderStatus('completed')}
-              >
-                ✅ Completed
-              </button>
-              <button 
-                className={`filter-btn ${orderStatus === 'cancelled' ? 'active' : ''}`}
-                onClick={() => setOrderStatus('cancelled')}
-              >
-                ❌ Cancelled
-              </button>
+              <button className={`filter-btn ${orderStatus === 'all' ? 'active' : ''}`} onClick={() => setOrderStatus('all')}>All Orders</button>
+              <button className={`filter-btn ${orderStatus === 'pending' ? 'active' : ''}`} onClick={() => setOrderStatus('pending')}>⏳ Pending</button>
+              <button className={`filter-btn ${orderStatus === 'preparing' ? 'active' : ''}`} onClick={() => setOrderStatus('preparing')}>📦 Preparing</button>
+              <button className={`filter-btn ${orderStatus === 'completed' ? 'active' : ''}`} onClick={() => setOrderStatus('completed')}>✅ Completed</button>
+              <button className={`filter-btn ${orderStatus === 'cancelled' ? 'active' : ''}`} onClick={() => setOrderStatus('cancelled')}>❌ Cancelled</button>
             </div>
             <span className="order-count">{filteredOrders.length} orders</span>
           </div>
@@ -1219,10 +1174,7 @@ function OwnerDashboard({ user, onLogout }) {
                         <span className="order-id">#{order.order_number || order.id.slice(0, 8)}</span>
                         <span className="order-time">
                           {new Date(order.created_at).toLocaleString('en-PH', {
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit'
+                            month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
                           })}
                         </span>
                       </div>
@@ -1233,7 +1185,6 @@ function OwnerDashboard({ user, onLogout }) {
                       </div>
                     </div>
 
-                    {/* Customer + items summary */}
                     <div className="order-body">
                       <div className="order-customer-line">
                         <span className="customer-label">👤 Customer:</span>
@@ -1254,9 +1205,7 @@ function OwnerDashboard({ user, onLogout }) {
                           </div>
                         ))}
                         {order.order_items?.length > 2 && (
-                          <div className="order-more-items">
-                            +{order.order_items.length - 2} more item(s)
-                          </div>
+                          <div className="order-more-items">+{order.order_items.length - 2} more item(s)</div>
                         )}
                       </div>
 
@@ -1266,7 +1215,6 @@ function OwnerDashboard({ user, onLogout }) {
                       </div>
                     </div>
 
-                    {/* Quick info bar */}
                     <div className="order-quick-info">
                       <span className={`payment-method-badge ${order.payment_method || 'gcash'}`}>
                         {order.payment_method === 'paymaya' ? '💚 PayMaya' : '💙 GCash'}
@@ -1282,29 +1230,43 @@ function OwnerDashboard({ user, onLogout }) {
                       </span>
                     </div>
 
-                    {/* Action buttons */}
                     <div className="order-card-actions">
-                      <button
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => setReviewingOrder(order)}
-                      >
-                        <EyeIcon /> Review Order
+                      <button className="btn btn-secondary btn-sm" onClick={() => setReviewingOrder(order)}>
+                        <EyeIcon /> Review
                       </button>
 
                       {order.status === 'pending' && (
-                        <button
-                          className="btn btn-primary btn-sm"
-                          onClick={() => updateOrderStatus(order.id, 'preparing')}
-                        >
-                          📦 Start Preparing
+                        <button className="btn btn-primary btn-sm" onClick={() => handleProcessOrder(order)}>
+                          ⚙️ Process Order
                         </button>
                       )}
+
+                      {order.status === 'pending' && order.payment_status === 'valid' && (
+                        <button 
+                          className="btn btn-warning btn-sm"
+                          onClick={() => updateOrderStatus(order.id, 'preparing')}
+                          title="Skip review and start preparing"
+                        >
+                          📦 Quick Start
+                        </button>
+                      )}
+
                       {order.status === 'preparing' && (
-                        <button
+                        <button 
                           className="btn btn-success btn-sm"
                           onClick={() => updateOrderStatus(order.id, 'completed')}
                         >
                           ✅ Complete
+                        </button>
+                      )}
+
+                      {order.status === 'pending' && order.payment_status !== 'valid' && (
+                        <button 
+                          className="btn btn-info btn-sm"
+                          onClick={() => handleProcessOrder(order)}
+                          title="Review and verify payment"
+                        >
+                          💳 Verify Payment
                         </button>
                       )}
                     </div>
@@ -1323,10 +1285,7 @@ function OwnerDashboard({ user, onLogout }) {
         <div className="menu-section">
           <div className="menu-header">
             <h2>Menu Items</h2>
-            <button 
-              className="btn btn-primary"
-              onClick={() => setActiveTab('add-product')}
-            >
+            <button className="btn btn-primary" onClick={() => setActiveTab('add-product')}>
               <UploadIcon /> Add New Item
             </button>
           </div>
@@ -1345,17 +1304,11 @@ function OwnerDashboard({ user, onLogout }) {
                       src={item.image_url || 'https://via.placeholder.com/300x200/1a1a2e/ffffff?text=No+Image'} 
                       alt={item.name}
                       className="menu-item-image"
-                      onError={(e) => {
-                        e.target.src = 'https://via.placeholder.com/300x200/1a1a2e/ffffff?text=No+Image';
-                      }}
+                      onError={(e) => { e.target.src = 'https://via.placeholder.com/300x200/1a1a2e/ffffff?text=No+Image'; }}
                     />
                     <span className="menu-item-category-badge">{item.type}</span>
                     <div className="menu-item-actions">
-                      <button 
-                        className="action-btn edit-btn"
-                        onClick={() => handleEditProduct(item)}
-                        title="Edit product"
-                      >
+                      <button className="action-btn edit-btn" onClick={() => handleEditProduct(item)} title="Edit product">
                         <EditIcon />
                       </button>
                       <button 
@@ -1390,23 +1343,14 @@ function OwnerDashboard({ user, onLogout }) {
           ============================================ */}
       {isEditing && editingProduct && (
         <div className="modal-overlay" onClick={() => {
-          setIsEditing(false);
-          setEditingProduct(null);
-          setEditImage(null);
-          setEditImagePreview(null);
+          setIsEditing(false); setEditingProduct(null); setEditImage(null); setEditImagePreview(null);
         }}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Edit Product</h2>
-              <button 
-                className="modal-close-btn"
-                onClick={() => {
-                  setIsEditing(false);
-                  setEditingProduct(null);
-                  setEditImage(null);
-                  setEditImagePreview(null);
-                }}
-              >
+              <button className="modal-close-btn" onClick={() => {
+                setIsEditing(false); setEditingProduct(null); setEditImage(null); setEditImagePreview(null);
+              }}>
                 <CloseIcon />
               </button>
             </div>
@@ -1420,18 +1364,11 @@ function OwnerDashboard({ user, onLogout }) {
                       {editImagePreview ? (
                         <div className="image-preview-container">
                           <img src={editImagePreview} alt="Product preview" className="image-preview" />
-                          <button 
-                            type="button"
-                            className="remove-image-btn"
-                            onClick={() => {
-                              setEditImage(null);
-                              setEditImagePreview(null);
-                              const fileInput = document.getElementById('edit-image-input');
-                              if (fileInput) fileInput.value = '';
-                            }}
-                          >
-                            ×
-                          </button>
+                          <button type="button" className="remove-image-btn" onClick={() => {
+                            setEditImage(null); setEditImagePreview(null);
+                            const fileInput = document.getElementById('edit-image-input');
+                            if (fileInput) fileInput.value = '';
+                          }}>×</button>
                         </div>
                       ) : (
                         <div className="upload-placeholder">
@@ -1440,13 +1377,7 @@ function OwnerDashboard({ user, onLogout }) {
                           <span className="upload-hint">JPG, PNG, WEBP (Max 5MB)</span>
                         </div>
                       )}
-                      <input
-                        id="edit-image-input"
-                        type="file"
-                        accept="image/*"
-                        onChange={handleEditImageSelect}
-                        className="image-input"
-                      />
+                      <input id="edit-image-input" type="file" accept="image/*" onChange={handleEditImageSelect} className="image-input" />
                     </div>
                   </div>
                 </div>
@@ -1454,23 +1385,14 @@ function OwnerDashboard({ user, onLogout }) {
                 <div className="form-right">
                   <div className="form-group">
                     <label>Product Name *</label>
-                    <input 
-                      type="text" 
-                      placeholder="e.g., Mocha Frappuccino" 
-                      required
-                      value={editForm.name}
-                      onChange={(e) => setEditForm({...editForm, name: e.target.value})}
-                    />
+                    <input type="text" placeholder="e.g., Mocha Frappuccino" required value={editForm.name}
+                      onChange={(e) => setEditForm({...editForm, name: e.target.value})} />
                   </div>
 
                   <div className="form-row">
                     <div className="form-group">
                       <label>Category *</label>
-                      <select 
-                        required
-                        value={editForm.type}
-                        onChange={(e) => setEditForm({...editForm, type: e.target.value})}
-                      >
+                      <select required value={editForm.type} onChange={(e) => setEditForm({...editForm, type: e.target.value})}>
                         <option value="coffee">☕ Coffee</option>
                         <option value="food">🍔 Food</option>
                         <option value="tea">🍵 Tea</option>
@@ -1479,36 +1401,21 @@ function OwnerDashboard({ user, onLogout }) {
                     </div>
                     <div className="form-group">
                       <label>Price (₱) *</label>
-                      <input 
-                        type="number" 
-                        placeholder="0.00" 
-                        required
-                        min="0"
-                        step="0.01"
-                        value={editForm.price}
-                        onChange={(e) => setEditForm({...editForm, price: e.target.value})}
-                      />
+                      <input type="number" placeholder="0.00" required min="0" step="0.01" value={editForm.price}
+                        onChange={(e) => setEditForm({...editForm, price: e.target.value})} />
                     </div>
                   </div>
 
                   <div className="form-group">
                     <label>Description *</label>
-                    <textarea 
-                      placeholder="Describe your product..." 
-                      rows="4" 
-                      required
-                      value={editForm.description}
-                      onChange={(e) => setEditForm({...editForm, description: e.target.value})}
-                    />
+                    <textarea placeholder="Describe your product..." rows="4" required value={editForm.description}
+                      onChange={(e) => setEditForm({...editForm, description: e.target.value})} />
                   </div>
 
                   <div className="form-group">
                     <label className="checkbox-label">
-                      <input 
-                        type="checkbox"
-                        checked={editForm.is_available}
-                        onChange={(e) => setEditForm({...editForm, is_available: e.target.checked})}
-                      />
+                      <input type="checkbox" checked={editForm.is_available}
+                        onChange={(e) => setEditForm({...editForm, is_available: e.target.checked})} />
                       Available for order
                     </label>
                   </div>
@@ -1516,34 +1423,18 @@ function OwnerDashboard({ user, onLogout }) {
                   {uploadProgress > 0 && uploadProgress < 100 && (
                     <div className="upload-progress">
                       <div className="progress-bar">
-                        <div 
-                          className="progress-fill" 
-                          style={{ width: `${uploadProgress}%` }}
-                        />
+                        <div className="progress-fill" style={{ width: `${uploadProgress}%` }} />
                       </div>
                       <span className="progress-text">{uploadProgress}%</span>
                     </div>
                   )}
 
                   <div className="modal-actions">
-                    <button 
-                      type="button"
-                      className="btn btn-secondary"
-                      onClick={() => {
-                        setIsEditing(false);
-                        setEditingProduct(null);
-                        setEditImage(null);
-                        setEditImagePreview(null);
-                      }}
-                    >
-                      Cancel
-                    </button>
-                    <button 
-                      type="submit" 
-                      className="btn btn-primary"
-                      disabled={uploading}
-                    >
-                      {uploading ? 'Updating...' : 'Update Product'}
+                    <button type="button" className="btn btn-secondary" onClick={() => {
+                      setIsEditing(false); setEditingProduct(null); setEditImage(null); setEditImagePreview(null);
+                    }}>Cancel</button>
+                    <button type="submit" className="btn btn-primary" disabled={uploading}>
+                      {uploading ? 'Updating...' : 'Save Changes'}
                     </button>
                   </div>
                 </div>
@@ -1562,15 +1453,11 @@ function OwnerDashboard({ user, onLogout }) {
             <h2>Add New Product</h2>
             
             {!storageInitialized ? (
-              <div className="storage-loading">
-                ⏳ Initializing storage...
-              </div>
+              <div className="storage-loading">⏳ Initializing storage...</div>
             ) : !bucketExists && (
               <div className="storage-warning">
                 <strong>⚠️ Storage bucket not found!</strong>
-                <p style={{marginTop: '0.5rem', fontSize: '0.9rem'}}>
-                  Please create it in Supabase dashboard:
-                </p>
+                <p style={{marginTop: '0.5rem', fontSize: '0.9rem'}}>Please create it in Supabase dashboard:</p>
                 <ol style={{marginTop: '0.5rem', fontSize: '0.9rem', paddingLeft: '1.5rem'}}>
                   <li>Go to Supabase Dashboard → Storage</li>
                   <li>Click "Create a new bucket"</li>
@@ -1580,9 +1467,7 @@ function OwnerDashboard({ user, onLogout }) {
                   <li>Refresh this page</li>
                 </ol>
                 {storageError && (
-                  <p style={{marginTop: '0.5rem', fontSize: '0.85rem', color: '#fca5a5'}}>
-                    Error: {storageError}
-                  </p>
+                  <p style={{marginTop: '0.5rem', fontSize: '0.85rem', color: '#fca5a5'}}>Error: {storageError}</p>
                 )}
               </div>
             )}
@@ -1596,18 +1481,11 @@ function OwnerDashboard({ user, onLogout }) {
                       {imagePreview ? (
                         <div className="image-preview-container">
                           <img src={imagePreview} alt="Product preview" className="image-preview" />
-                          <button 
-                            type="button"
-                            className="remove-image-btn"
-                            onClick={() => {
-                              setSelectedImage(null);
-                              setImagePreview(null);
-                              const fileInput = document.getElementById('product-image-input');
-                              if (fileInput) fileInput.value = '';
-                            }}
-                          >
-                            ×
-                          </button>
+                          <button type="button" className="remove-image-btn" onClick={() => {
+                            setSelectedImage(null); setImagePreview(null);
+                            const fileInput = document.getElementById('product-image-input');
+                            if (fileInput) fileInput.value = '';
+                          }}>×</button>
                         </div>
                       ) : (
                         <div className="upload-placeholder">
@@ -1616,14 +1494,7 @@ function OwnerDashboard({ user, onLogout }) {
                           <span className="upload-hint">JPG, PNG, WEBP (Max 5MB)</span>
                         </div>
                       )}
-                      <input
-                        id="product-image-input"
-                        type="file"
-                        accept="image/*"
-                        onChange={handleImageSelect}
-                        className="image-input"
-                        required
-                      />
+                      <input id="product-image-input" type="file" accept="image/*" onChange={handleImageSelect} className="image-input" required />
                     </div>
                   </div>
                 </div>
@@ -1631,23 +1502,14 @@ function OwnerDashboard({ user, onLogout }) {
                 <div className="form-right">
                   <div className="form-group">
                     <label>Product Name *</label>
-                    <input 
-                      type="text" 
-                      placeholder="e.g., Mocha Frappuccino" 
-                      required
-                      value={uploadForm.name}
-                      onChange={(e) => setUploadForm({...uploadForm, name: e.target.value})}
-                    />
+                    <input type="text" placeholder="e.g., Mocha Frappuccino" required value={uploadForm.name}
+                      onChange={(e) => setUploadForm({...uploadForm, name: e.target.value})} />
                   </div>
 
                   <div className="form-row">
                     <div className="form-group">
                       <label>Category *</label>
-                      <select 
-                        required
-                        value={uploadForm.type}
-                        onChange={(e) => setUploadForm({...uploadForm, type: e.target.value})}
-                      >
+                      <select required value={uploadForm.type} onChange={(e) => setUploadForm({...uploadForm, type: e.target.value})}>
                         <option value="coffee">☕ Coffee</option>
                         <option value="food">🍔 Food</option>
                         <option value="tea">🍵 Tea</option>
@@ -1656,36 +1518,21 @@ function OwnerDashboard({ user, onLogout }) {
                     </div>
                     <div className="form-group">
                       <label>Price (₱) *</label>
-                      <input 
-                        type="number" 
-                        placeholder="0.00" 
-                        required
-                        min="0"
-                        step="0.01"
-                        value={uploadForm.price}
-                        onChange={(e) => setUploadForm({...uploadForm, price: e.target.value})}
-                      />
+                      <input type="number" placeholder="0.00" required min="0" step="0.01" value={uploadForm.price}
+                        onChange={(e) => setUploadForm({...uploadForm, price: e.target.value})} />
                     </div>
                   </div>
 
                   <div className="form-group">
                     <label>Description *</label>
-                    <textarea 
-                      placeholder="Describe your product..." 
-                      rows="4" 
-                      required
-                      value={uploadForm.description}
-                      onChange={(e) => setUploadForm({...uploadForm, description: e.target.value})}
-                    />
+                    <textarea placeholder="Describe your product..." rows="4" required value={uploadForm.description}
+                      onChange={(e) => setUploadForm({...uploadForm, description: e.target.value})} />
                   </div>
 
                   <div className="form-group">
                     <label className="checkbox-label">
-                      <input 
-                        type="checkbox"
-                        checked={uploadForm.is_available}
-                        onChange={(e) => setUploadForm({...uploadForm, is_available: e.target.checked})}
-                      />
+                      <input type="checkbox" checked={uploadForm.is_available}
+                        onChange={(e) => setUploadForm({...uploadForm, is_available: e.target.checked})} />
                       Available for order
                     </label>
                   </div>
@@ -1693,20 +1540,14 @@ function OwnerDashboard({ user, onLogout }) {
                   {uploadProgress > 0 && uploadProgress < 100 && (
                     <div className="upload-progress">
                       <div className="progress-bar">
-                        <div 
-                          className="progress-fill" 
-                          style={{ width: `${uploadProgress}%` }}
-                        />
+                        <div className="progress-fill" style={{ width: `${uploadProgress}%` }} />
                       </div>
                       <span className="progress-text">{uploadProgress}%</span>
                     </div>
                   )}
 
-                  <button 
-                    type="submit" 
-                    className="btn btn-primary btn-large submit-product-btn"
-                    disabled={uploading || !bucketExists}
-                  >
+                  <button type="submit" className="btn btn-primary btn-large submit-product-btn"
+                    disabled={uploading || !bucketExists}>
                     {uploading ? 'Uploading...' : 'Add Product'}
                   </button>
                 </div>
@@ -1844,61 +1685,28 @@ function OwnerDashboard({ user, onLogout }) {
         <div className="employees-container">
           <div className="employees-grid">
             <div className="employee-form-panel">
-              <h2>
-                <UserPlusIcon style={{marginRight: '0.5rem'}} />
-                Create Employee Account
-              </h2>
+              <h2><UserPlusIcon style={{marginRight: '0.5rem'}} /> Create Employee Account</h2>
               <form onSubmit={handleCreateEmployee}>
                 <div className="form-group">
                   <label>Full Name *</label>
-                  <input
-                    type="text"
-                    placeholder="Enter employee name"
-                    required
-                    value={employeeForm.name}
-                    onChange={(e) => setEmployeeForm({...employeeForm, name: e.target.value})}
-                  />
+                  <input type="text" placeholder="Enter employee name" required value={employeeForm.name}
+                    onChange={(e) => setEmployeeForm({...employeeForm, name: e.target.value})} />
                 </div>
                 <div className="form-group">
                   <label>Email *</label>
-                  <input
-                    type="email"
-                    placeholder="employee@example.com"
-                    required
-                    value={employeeForm.email}
-                    onChange={(e) => setEmployeeForm({...employeeForm, email: e.target.value})}
-                  />
+                  <input type="email" placeholder="employee@example.com" required value={employeeForm.email}
+                    onChange={(e) => setEmployeeForm({...employeeForm, email: e.target.value})} />
                 </div>
                 <div className="form-group">
                   <label>Password *</label>
-                  <input
-                    type="password"
-                    placeholder="Min 6 characters"
-                    required
-                    minLength={6}
-                    value={employeeForm.password}
-                    onChange={(e) => setEmployeeForm({...employeeForm, password: e.target.value})}
-                  />
+                  <input type="password" placeholder="Min 6 characters" required minLength={6} value={employeeForm.password}
+                    onChange={(e) => setEmployeeForm({...employeeForm, password: e.target.value})} />
                 </div>
 
-                {employeeError && (
-                  <div className="error-message" style={{marginBottom: '1rem'}}>
-                    ❌ {employeeError}
-                  </div>
-                )}
-                
-                {employeeSuccess && (
-                  <div className="success-message" style={{marginBottom: '1rem'}}>
-                    ✅ {employeeSuccess}
-                  </div>
-                )}
+                {employeeError && <div className="error-message" style={{marginBottom: '1rem'}}>❌ {employeeError}</div>}
+                {employeeSuccess && <div className="success-message" style={{marginBottom: '1rem'}}>✅ {employeeSuccess}</div>}
 
-                <button 
-                  type="submit" 
-                  className="btn btn-primary btn-large"
-                  disabled={creatingEmployee}
-                  style={{width: '100%'}}
-                >
+                <button type="submit" className="btn btn-primary btn-large" disabled={creatingEmployee} style={{width: '100%'}}>
                   {creatingEmployee ? '⏳ Creating...' : '➕ Create Employee Account'}
                 </button>
               </form>
@@ -1909,35 +1717,21 @@ function OwnerDashboard({ user, onLogout }) {
                 <h2>
                   <UsersIcon />
                   Employee List
-                  <span className="employee-count">
-                    {employees.length}
-                  </span>
+                  <span className="employee-count">{employees.length}</span>
                 </h2>
-                <button 
-                  className="btn btn-secondary btn-sm"
-                  onClick={fetchEmployees}
-                  disabled={loadingEmployees}
-                >
+                <button className="btn btn-secondary btn-sm" onClick={fetchEmployees} disabled={loadingEmployees}>
                   {loadingEmployees ? '⏳ Loading...' : '🔄 Refresh'}
                 </button>
               </div>
               
-              {employeesError && (
-                <div className="error-message" style={{marginBottom: '1rem'}}>
-                  ❌ Error: {employeesError}
-                </div>
-              )}
+              {employeesError && <div className="error-message" style={{marginBottom: '1rem'}}>❌ Error: {employeesError}</div>}
               
               {loadingEmployees ? (
-                <p style={{color: '#94a3b8', textAlign: 'center', padding: '2rem'}}>
-                  ⏳ Loading employees...
-                </p>
+                <p style={{color: '#94a3b8', textAlign: 'center', padding: '2rem'}}>⏳ Loading employees...</p>
               ) : employees.length === 0 ? (
                 <div className="empty-state" style={{textAlign: 'center', padding: '3rem'}}>
                   <p style={{color: '#94a3b8'}}>No employees found.</p>
-                  <p style={{fontSize: '0.8rem', color: '#64748b'}}>
-                    Create your first employee using the form on the left.
-                  </p>
+                  <p style={{fontSize: '0.8rem', color: '#64748b'}}>Create your first employee using the form on the left.</p>
                 </div>
               ) : (
                 <div className="employee-list">
@@ -1948,14 +1742,8 @@ function OwnerDashboard({ user, onLogout }) {
                         <p>{emp.email}</p>
                       </div>
                       <div className="employee-item-actions">
-                        <span className="employee-role-badge">
-                          Employee
-                        </span>
-                        <button 
-                          className="action-btn delete-btn"
-                          onClick={() => handleDeleteEmployee(emp.id, emp.name)}
-                          disabled={deletingEmployee === emp.id}
-                        >
+                        <span className="employee-role-badge">Employee</span>
+                        <button className="action-btn delete-btn" onClick={() => handleDeleteEmployee(emp.id, emp.name)} disabled={deletingEmployee === emp.id}>
                           {deletingEmployee === emp.id ? '⏳' : '🗑️'}
                         </button>
                       </div>
@@ -1976,15 +1764,9 @@ function OwnerDashboard({ user, onLogout }) {
           <div className="customers-header">
             <div>
               <h2>Customer Directory</h2>
-              <p className="customers-subtitle">
-                View all registered customers and their activity
-              </p>
+              <p className="customers-subtitle">View all registered customers and their activity</p>
             </div>
-            <button 
-              className="btn btn-secondary btn-sm"
-              onClick={fetchCustomers}
-              disabled={loadingCustomers}
-            >
+            <button className="btn btn-secondary btn-sm" onClick={fetchCustomers} disabled={loadingCustomers}>
               {loadingCustomers ? '⏳ Loading...' : '🔄 Refresh'}
             </button>
           </div>
@@ -2007,9 +1789,7 @@ function OwnerDashboard({ user, onLogout }) {
             <div className="customer-stat-card highlight">
               <div className="customer-stat-icon">💰</div>
               <div>
-                <span className="customer-stat-value">
-                  ₱{customerStats.totalRevenue.toLocaleString()}
-                </span>
+                <span className="customer-stat-value">₱{customerStats.totalRevenue.toLocaleString()}</span>
                 <span className="customer-stat-label">Total Revenue</span>
               </div>
             </div>
@@ -2017,27 +1797,12 @@ function OwnerDashboard({ user, onLogout }) {
 
           <div className="customers-search-bar">
             <SearchIcon />
-            <input
-              type="text"
-              placeholder="Search by name or email..."
-              value={customerSearch}
-              onChange={(e) => setCustomerSearch(e.target.value)}
-            />
-            {customerSearch && (
-              <button 
-                className="search-clear-btn"
-                onClick={() => setCustomerSearch('')}
-              >
-                ×
-              </button>
-            )}
+            <input type="text" placeholder="Search by name or email..." value={customerSearch}
+              onChange={(e) => setCustomerSearch(e.target.value)} />
+            {customerSearch && <button className="search-clear-btn" onClick={() => setCustomerSearch('')}>×</button>}
           </div>
 
-          {customersError && (
-            <div className="error-message" style={{marginBottom: '1rem'}}>
-              ❌ Error: {customersError}
-            </div>
-          )}
+          {customersError && <div className="error-message" style={{marginBottom: '1rem'}}>❌ Error: {customersError}</div>}
 
           {loadingCustomers ? (
             <div className="customers-loading">⏳ Loading customers...</div>
@@ -2064,52 +1829,33 @@ function OwnerDashboard({ user, onLogout }) {
                     <tr key={customer.id}>
                       <td>
                         <div className="customer-cell">
-                          <div className="customer-avatar">
-                            {(customer.name || 'U').charAt(0).toUpperCase()}
-                          </div>
+                          <div className="customer-avatar">{(customer.name || 'U').charAt(0).toUpperCase()}</div>
                           <div className="customer-name-block">
-                            <span className="customer-name-text">
-                              {customer.name || 'Unnamed User'}
-                            </span>
+                            <span className="customer-name-text">{customer.name || 'Unnamed User'}</span>
                             <span className="customer-role-tag">Customer</span>
                           </div>
                         </div>
                       </td>
-                      <td>
-                        <span className="customer-email">{customer.email}</span>
-                      </td>
+                      <td><span className="customer-email">{customer.email}</span></td>
                       <td>
                         <span className="customer-joined">
                           {customer.created_at 
-                            ? new Date(customer.created_at).toLocaleDateString('en-PH', {
-                                year: 'numeric',
-                                month: 'short',
-                                day: 'numeric'
-                              })
+                            ? new Date(customer.created_at).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' })
                             : 'N/A'}
                         </span>
                       </td>
                       <td>
                         <span className="customer-orders-count">
                           <strong>{customer.total_orders || 0}</strong>
-                          <span className="orders-breakdown">
-                            ({customer.completed_orders || 0} completed)
-                          </span>
+                          <span className="orders-breakdown">({customer.completed_orders || 0} completed)</span>
                         </span>
                       </td>
                       <td>
-                        <span className="customer-total-spent">
-                          ₱{Number(customer.total_spent || 0).toLocaleString()}
-                        </span>
+                        <span className="customer-total-spent">₱{Number(customer.total_spent || 0).toLocaleString()}</span>
                       </td>
                       <td>
                         <div className="customer-actions">
-                          <button 
-                            className="action-btn delete-btn"
-                            onClick={() => handleDeleteCustomer(customer)}
-                            disabled={deletingCustomer === customer.id}
-                            title="Delete customer"
-                          >
+                          <button className="action-btn delete-btn" onClick={() => handleDeleteCustomer(customer)} disabled={deletingCustomer === customer.id}>
                             {deletingCustomer === customer.id ? '⏳' : <DeleteIcon />}
                           </button>
                         </div>
@@ -2130,41 +1876,22 @@ function OwnerDashboard({ user, onLogout }) {
         <div className="profile-view">
           <div className="profile-container">
             <div className="profile-header">
-              <div className="profile-avatar">
-                <span className="avatar-icon">👑</span>
-              </div>
+              <div className="profile-avatar"><span className="avatar-icon">👑</span></div>
               <div className="profile-title">
                 <h2>Owner Profile</h2>
                 <p>Manage your account settings</p>
               </div>
             </div>
 
-            {profileSuccess && (
-              <div className="profile-success">
-                <span>✅</span>
-                {profileSuccess}
-              </div>
-            )}
-
-            {profileError && (
-              <div className="profile-error">
-                <span>❌</span>
-                {profileError}
-              </div>
-            )}
+            {profileSuccess && <div className="profile-success"><span>✅</span>{profileSuccess}</div>}
+            {profileError && <div className="profile-error"><span>❌</span>{profileError}</div>}
 
             <div className="profile-grid">
               <div className="profile-card">
                 <div className="profile-card-header">
-                  <h3>
-                    <span className="card-icon">📝</span>
-                    Profile Information
-                  </h3>
+                  <h3><span className="card-icon">📝</span> Profile Information</h3>
                   {!isEditingProfile && (
-                    <button 
-                      className="edit-profile-btn"
-                      onClick={() => setIsEditingProfile(true)}
-                    >
+                    <button className="edit-profile-btn" onClick={() => setIsEditingProfile(true)}>
                       <EditIcon /> Edit
                     </button>
                   )}
@@ -2174,49 +1901,23 @@ function OwnerDashboard({ user, onLogout }) {
                   <form onSubmit={handleProfileUpdate} className="profile-form">
                     <div className="form-group">
                       <label>Full Name</label>
-                      <input
-                        type="text"
-                        value={profile.name}
-                        onChange={(e) => setProfile({...profile, name: e.target.value})}
-                        placeholder="Enter your full name"
-                        required
-                      />
+                      <input type="text" value={profile.name} onChange={(e) => setProfile({...profile, name: e.target.value})}
+                        placeholder="Enter your full name" required />
                     </div>
                     <div className="form-group">
                       <label>Email</label>
-                      <input
-                        type="email"
-                        value={profile.email}
-                        disabled
-                        className="disabled-input"
-                      />
+                      <input type="email" value={profile.email} disabled className="disabled-input" />
                       <span className="input-hint">Email cannot be changed</span>
                     </div>
                     <div className="form-group">
                       <label>Role</label>
-                      <input
-                        type="text"
-                        value="Owner"
-                        disabled
-                        className="disabled-input"
-                      />
+                      <input type="text" value="Owner" disabled className="disabled-input" />
                     </div>
                     <div className="profile-actions">
-                      <button 
-                        type="button"
-                        className="btn-cancel"
-                        onClick={() => {
-                          setIsEditingProfile(false);
-                          setProfile({...profile, name: user?.name || ''});
-                        }}
-                      >
-                        Cancel
-                      </button>
-                      <button 
-                        type="submit" 
-                        className="btn-save"
-                        disabled={profileLoading}
-                      >
+                      <button type="button" className="btn-cancel" onClick={() => {
+                        setIsEditingProfile(false); setProfile({...profile, name: user?.name || ''});
+                      }}>Cancel</button>
+                      <button type="submit" className="btn-save" disabled={profileLoading}>
                         {profileLoading ? 'Saving...' : <><SaveIcon /> Save Changes</>}
                       </button>
                     </div>
@@ -2239,9 +1940,7 @@ function OwnerDashboard({ user, onLogout }) {
                       <span className="field-label">Member Since</span>
                       <span className="field-value">
                         {user?.created_at ? new Date(user.created_at).toLocaleDateString('en-PH', {
-                          year: 'numeric',
-                          month: 'long',
-                          day: 'numeric'
+                          year: 'numeric', month: 'long', day: 'numeric'
                         }) : 'N/A'}
                       </span>
                     </div>
@@ -2251,50 +1950,29 @@ function OwnerDashboard({ user, onLogout }) {
 
               <div className="profile-card">
                 <div className="profile-card-header">
-                  <h3>
-                    <span className="card-icon">🔒</span>
-                    Change Password
-                  </h3>
+                  <h3><span className="card-icon">🔒</span> Change Password</h3>
                 </div>
 
                 <form onSubmit={handlePasswordUpdate} className="profile-form">
                   <div className="form-group">
                     <label>Current Password</label>
-                    <input
-                      type="password"
-                      value={passwordData.currentPassword}
+                    <input type="password" value={passwordData.currentPassword}
                       onChange={(e) => setPasswordData({...passwordData, currentPassword: e.target.value})}
-                      placeholder="Enter current password"
-                      required
-                    />
+                      placeholder="Enter current password" required />
                   </div>
                   <div className="form-group">
                     <label>New Password</label>
-                    <input
-                      type="password"
-                      value={passwordData.newPassword}
+                    <input type="password" value={passwordData.newPassword}
                       onChange={(e) => setPasswordData({...passwordData, newPassword: e.target.value})}
-                      placeholder="Min 6 characters"
-                      required
-                      minLength={6}
-                    />
+                      placeholder="Min 6 characters" required minLength={6} />
                   </div>
                   <div className="form-group">
                     <label>Confirm New Password</label>
-                    <input
-                      type="password"
-                      value={passwordData.confirmPassword}
+                    <input type="password" value={passwordData.confirmPassword}
                       onChange={(e) => setPasswordData({...passwordData, confirmPassword: e.target.value})}
-                      placeholder="Confirm new password"
-                      required
-                      minLength={6}
-                    />
+                      placeholder="Confirm new password" required minLength={6} />
                   </div>
-                  <button 
-                    type="submit" 
-                    className="btn-save-password"
-                    disabled={profileLoading}
-                  >
+                  <button type="submit" className="btn-save-password" disabled={profileLoading}>
                     {profileLoading ? 'Updating...' : 'Update Password'}
                   </button>
                 </form>
@@ -2308,75 +1986,47 @@ function OwnerDashboard({ user, onLogout }) {
           ORDER REVIEW MODAL
           ============================================ */}
       {reviewingOrder && (
-        <div 
-          className="modal-overlay" 
-          onClick={() => setReviewingOrder(null)}
-        >
-          <div 
-            className="modal-content order-review-modal" 
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Modal Header */}
+        <div className="modal-overlay" onClick={() => setReviewingOrder(null)}>
+          <div className="modal-content order-review-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header order-review-header">
               <div className="modal-title-with-icon">
                 <ReceiptIcon />
                 <div>
                   <h2>Order Review</h2>
-                  <span className="modal-subtitle">
-                    #{reviewingOrder.order_number || reviewingOrder.id.slice(0, 8)}
-                  </span>
+                  <span className="modal-subtitle">#{reviewingOrder.order_number || reviewingOrder.id.slice(0, 8)}</span>
                 </div>
               </div>
-              <button 
-                className="modal-close-btn"
-                onClick={() => setReviewingOrder(null)}
-              >
+              <button className="modal-close-btn" onClick={() => setReviewingOrder(null)}>
                 <CloseIcon />
               </button>
             </div>
 
-            {/* Modal Body */}
             <div className="order-review-body">
-              {/* Left column */}
               <div className="review-column">
-                {/* Customer Card */}
                 <div className="review-block">
-                  <h3 className="review-block-title">
-                    👤 Customer Information
-                  </h3>
+                  <h3 className="review-block-title">👤 Customer Information</h3>
                   <div className="review-info-grid">
                     <div className="review-info-row">
                       <span className="review-info-label">Name</span>
-                      <span className="review-info-value">
-                        {reviewingOrder.users?.name || 'Guest'}
-                      </span>
+                      <span className="review-info-value">{reviewingOrder.users?.name || 'Guest'}</span>
                     </div>
                     <div className="review-info-row">
                       <span className="review-info-label">Email</span>
-                      <span className="review-info-value">
-                        {reviewingOrder.users?.email || '—'}
-                      </span>
+                      <span className="review-info-value">{reviewingOrder.users?.email || '—'}</span>
                     </div>
                     <div className="review-info-row">
                       <span className="review-info-label">Customer ID</span>
-                      <span className="review-info-value mono">
-                        {reviewingOrder.customer_id?.slice(0, 8) || '—'}...
-                      </span>
+                      <span className="review-info-value mono">{reviewingOrder.customer_id?.slice(0, 8) || '—'}...</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Order Info */}
                 <div className="review-block">
-                  <h3 className="review-block-title">
-                    📋 Order Information
-                  </h3>
+                  <h3 className="review-block-title">📋 Order Information</h3>
                   <div className="review-info-grid">
                     <div className="review-info-row">
                       <span className="review-info-label">Status</span>
-                      <span className={`order-status-badge ${reviewingOrder.status}`}>
-                        {reviewingOrder.status.toUpperCase()}
-                      </span>
+                      <span className={`order-status-badge ${reviewingOrder.status}`}>{reviewingOrder.status.toUpperCase()}</span>
                     </div>
                     <div className="review-info-row">
                       <span className="review-info-label">Order Type</span>
@@ -2388,28 +2038,19 @@ function OwnerDashboard({ user, onLogout }) {
                       <span className="review-info-label">Placed On</span>
                       <span className="review-info-value">
                         {new Date(reviewingOrder.created_at).toLocaleString('en-PH', {
-                          year: 'numeric',
-                          month: 'long',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit'
+                          year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
                         })}
                       </span>
                     </div>
                     <div className="review-info-row">
                       <span className="review-info-label">Total</span>
-                      <span className="review-info-value highlight">
-                        ₱{Number(reviewingOrder.total_amount).toFixed(2)}
-                      </span>
+                      <span className="review-info-value highlight">₱{Number(reviewingOrder.total_amount).toFixed(2)}</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Payment Info */}
                 <div className="review-block">
-                  <h3 className="review-block-title">
-                    💳 Payment Information
-                  </h3>
+                  <h3 className="review-block-title">💳 Payment Information</h3>
                   <div className="review-info-grid">
                     <div className="review-info-row">
                       <span className="review-info-label">Method</span>
@@ -2425,44 +2066,22 @@ function OwnerDashboard({ user, onLogout }) {
                     </div>
                   </div>
 
-                  {/* Payment Status Buttons */}
                   <div className="payment-status-buttons">
                     <button
                       className={`payment-status-btn ${reviewingOrder.payment_status === 'valid' ? 'active' : ''}`}
-                      onClick={async () => {
-                        try {
-                          await updatePaymentStatus(reviewingOrder.id, 'valid');
-                          setReviewingOrder({ ...reviewingOrder, payment_status: 'valid' });
-                        } catch (err) {
-                          alert('Failed to update payment status: ' + err.message);
-                        }
-                      }}
+                      onClick={() => handleUpdatePaymentStatus(reviewingOrder.id, 'valid')}
                     >
                       ✅ Valid
                     </button>
                     <button
                       className={`payment-status-btn ${reviewingOrder.payment_status === 'underpayment' ? 'active' : ''}`}
-                      onClick={async () => {
-                        try {
-                          await updatePaymentStatus(reviewingOrder.id, 'underpayment');
-                          setReviewingOrder({ ...reviewingOrder, payment_status: 'underpayment' });
-                        } catch (err) {
-                          alert('Failed to update payment status: ' + err.message);
-                        }
-                      }}
+                      onClick={() => handleUpdatePaymentStatus(reviewingOrder.id, 'underpayment')}
                     >
                       ⚠️ Underpaid
                     </button>
                     <button
                       className={`payment-status-btn ${reviewingOrder.payment_status === 'overpayment' ? 'active' : ''}`}
-                      onClick={async () => {
-                        try {
-                          await updatePaymentStatus(reviewingOrder.id, 'overpayment');
-                          setReviewingOrder({ ...reviewingOrder, payment_status: 'overpayment' });
-                        } catch (err) {
-                          alert('Failed to update payment status: ' + err.message);
-                        }
-                      }}
+                      onClick={() => handleUpdatePaymentStatus(reviewingOrder.id, 'overpayment')}
                     >
                       ⚠️ Overpaid
                     </button>
@@ -2470,13 +2089,9 @@ function OwnerDashboard({ user, onLogout }) {
                 </div>
               </div>
 
-              {/* Right column */}
               <div className="review-column">
-                {/* Order Items */}
                 <div className="review-block">
-                  <h3 className="review-block-title">
-                    🛍️ Order Items
-                  </h3>
+                  <h3 className="review-block-title">🛍️ Order Items</h3>
                   <div className="review-items-table">
                     <div className="review-items-header">
                       <span>Item</span>
@@ -2486,13 +2101,9 @@ function OwnerDashboard({ user, onLogout }) {
                     </div>
                     {reviewingOrder.order_items?.map((item, idx) => (
                       <div key={idx} className="review-items-row">
-                        <span className="review-item-name">
-                          {item.menu_items?.name || 'Item'}
-                        </span>
+                        <span className="review-item-name">{item.menu_items?.name || 'Item'}</span>
                         <span className="review-item-qty">×{item.quantity}</span>
-                        <span className="review-item-price">
-                          ₱{Number(item.price_at_time).toFixed(2)}
-                        </span>
+                        <span className="review-item-price">₱{Number(item.price_at_time).toFixed(2)}</span>
                         <span className="review-item-subtotal">
                           ₱{(Number(item.price_at_time) * item.quantity).toFixed(2)}
                         </span>
@@ -2507,11 +2118,8 @@ function OwnerDashboard({ user, onLogout }) {
                   </div>
                 </div>
 
-                {/* Payment Proof */}
                 <div className="review-block">
-                  <h3 className="review-block-title">
-                    📸 Payment Proof
-                  </h3>
+                  <h3 className="review-block-title">📸 Payment Proof</h3>
                   {reviewingOrder.proof_image_url ? (
                     <div className="review-proof-container">
                       <img
@@ -2520,9 +2128,7 @@ function OwnerDashboard({ user, onLogout }) {
                         className="review-proof-image"
                         onClick={() => setViewingReceipt(reviewingOrder.proof_image_url)}
                       />
-                      <p className="review-proof-hint">
-                        Click the image to view full size
-                      </p>
+                      <p className="review-proof-hint">Click the image to view full size</p>
                     </div>
                   ) : (
                     <div className="review-proof-placeholder">
@@ -2532,39 +2138,42 @@ function OwnerDashboard({ user, onLogout }) {
                   )}
                 </div>
 
-                {/* Actions */}
                 <div className="review-block review-actions-block">
-                  <h3 className="review-block-title">
-                    ⚡ Actions
-                  </h3>
+                  <h3 className="review-block-title">⚡ Order Actions</h3>
 
                   {reviewingOrder.status === 'pending' && (
                     <div className="review-actions-row">
+                      {reviewingOrder.payment_status !== 'valid' && (
+                        <div className="action-warning">
+                          <span className="warning-icon">⚠️</span>
+                          <p>Payment must be verified as <strong>Valid</strong> before you can start preparing this order.</p>
+                        </div>
+                      )}
+
                       <button
                         className="btn btn-primary btn-large"
                         disabled={reviewingOrder.payment_status !== 'valid'}
-                        onClick={async () => {
-                          await updateOrderStatus(reviewingOrder.id, 'preparing');
-                        }}
+                        onClick={() => updateOrderStatus(reviewingOrder.id, 'preparing')}
                       >
                         📦 Start Preparing
                       </button>
-                      {reviewingOrder.payment_status !== 'valid' && (
-                        <p className="action-hint">
-                          ⓘ Verify payment as <strong>Valid</strong> first
-                        </p>
-                      )}
+
+                      <button
+                        className="btn btn-danger btn-large decline-order-btn"
+                        onClick={() => updateOrderStatus(reviewingOrder.id, 'declined')}
+                      >
+                        🚫 Decline Order
+                      </button>
                     </div>
                   )}
 
                   {reviewingOrder.status === 'preparing' && (
                     <div className="review-actions-row">
-                      <button
-                        className="btn btn-success btn-large"
-                        onClick={async () => {
-                          await updateOrderStatus(reviewingOrder.id, 'completed');
-                        }}
-                      >
+                      <div className="action-info">
+                        <span className="info-icon">📦</span>
+                        <p>This order is currently being prepared.</p>
+                      </div>
+                      <button className="btn btn-success btn-large" onClick={() => updateOrderStatus(reviewingOrder.id, 'completed')}>
                         ✅ Mark as Completed
                       </button>
                     </div>
@@ -2580,7 +2189,7 @@ function OwnerDashboard({ user, onLogout }) {
                   {reviewingOrder.status === 'cancelled' && (
                     <div className="review-status-message error">
                       <span>❌</span>
-                      <p>This order was cancelled.</p>
+                      <p>This order was cancelled by the customer.</p>
                     </div>
                   )}
 
@@ -2590,27 +2199,6 @@ function OwnerDashboard({ user, onLogout }) {
                       <p>This order was declined.</p>
                     </div>
                   )}
-
-                  {reviewingOrder.status === 'pending' && (
-                    <button
-                      className="btn btn-danger btn-large decline-order-btn"
-                      onClick={() => {
-                        openConfirm({
-                          title: 'Decline Order?',
-                          message: `Are you sure you want to decline order #${reviewingOrder.order_number || reviewingOrder.id.slice(0, 8)}? This will notify the customer.`,
-                          confirmText: 'Yes, Decline',
-                          cancelText: 'No, Keep',
-                          variant: 'danger',
-                          onConfirm: async () => {
-                            closeConfirm();
-                            await updateOrderStatus(reviewingOrder.id, 'declined');
-                          }
-                        });
-                      }}
-                    >
-                      🚫 Decline Order
-                    </button>
-                  )}
                 </div>
               </div>
             </div>
@@ -2618,37 +2206,18 @@ function OwnerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* ============================================
-          RECEIPT VIEWER MODAL
-          ============================================ */}
+      {/* Receipt Viewer Modal */}
       {viewingReceipt && (
-        <div 
-          className="receipt-viewer-overlay" 
-          onClick={() => setViewingReceipt(null)}
-        >
-          <div 
-            className="receipt-viewer-content" 
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button 
-              className="receipt-viewer-close"
-              onClick={() => setViewingReceipt(null)}
-            >
-              ×
-            </button>
+        <div className="receipt-viewer-overlay" onClick={() => setViewingReceipt(null)}>
+          <div className="receipt-viewer-content" onClick={(e) => e.stopPropagation()}>
+            <button className="receipt-viewer-close" onClick={() => setViewingReceipt(null)}>×</button>
             <h3 className="receipt-viewer-title">Payment Proof</h3>
-            <img 
-              src={viewingReceipt} 
-              alt="Payment proof" 
-              className="receipt-viewer-image" 
-            />
+            <img src={viewingReceipt} alt="Payment proof" className="receipt-viewer-image" />
           </div>
         </div>
       )}
 
-      {/* ============================================ */}
-      {/* CONFIRMATION MODAL */}
-      {/* ============================================ */}
+      {/* Confirmation Modal */}
       <ConfirmModal
         isOpen={confirmModal.isOpen}
         title={confirmModal.title}
@@ -2656,6 +2225,7 @@ function OwnerDashboard({ user, onLogout }) {
         confirmText={confirmModal.confirmText}
         cancelText={confirmModal.cancelText}
         variant={confirmModal.variant}
+        isLoading={confirmModal.isLoading}
         onConfirm={confirmModal.onConfirm}
         onCancel={closeConfirm}
       />
