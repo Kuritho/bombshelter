@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient';
 
+// ============================================
+// MENU ITEMS HOOK
+// ============================================
 export const useMenuItems = () => {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -90,6 +93,9 @@ export const useMenuItems = () => {
   };
 };
 
+// ============================================
+// ORDERS HOOK
+// ============================================
 export const useOrders = (customerId = null) => {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -198,6 +204,9 @@ export const useOrders = (customerId = null) => {
   };
 };
 
+// ============================================
+// REVIEWS HOOK
+// ============================================
 export const useReviews = () => {
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -248,6 +257,9 @@ export const useReviews = () => {
   return { reviews, loading, error, addReview, refresh: fetchReviews };
 };
 
+// ============================================
+// EMPLOYEES HOOK
+// ============================================
 export const useEmployees = () => {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -359,5 +371,96 @@ export const useEmployees = () => {
     createEmployee,
     deleteEmployee,
     refetch: fetchEmployees 
+  };
+};
+
+// ============================================
+// CUSTOMERS HOOK
+// ============================================
+export const useCustomers = () => {
+  const [customers, setCustomers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const fetchCustomers = async () => {
+    try {
+      setLoading(true);
+      console.log('🔍 Fetching customers with order stats...');
+
+      // Fetch customers
+      const { data: usersData, error: usersError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('role', 'customer')
+        .order('created_at', { ascending: false });
+
+      if (usersError) throw usersError;
+
+      // Fetch all orders to compute stats per customer
+      const { data: ordersData, error: ordersError } = await supabase
+        .from('orders')
+        .select('customer_id, total_amount, status');
+
+      if (ordersError) throw ordersError;
+
+      // Compute stats per customer
+      const customersWithStats = (usersData || []).map(customer => {
+        const customerOrders = (ordersData || []).filter(
+          o => o.customer_id === customer.id
+        );
+        const completedOrders = customerOrders.filter(
+          o => o.status === 'completed'
+        );
+        const totalSpent = completedOrders.reduce(
+          (sum, o) => sum + Number(o.total_amount || 0),
+          0
+        );
+
+        return {
+          ...customer,
+          total_orders: customerOrders.length,
+          completed_orders: completedOrders.length,
+          total_spent: totalSpent,
+        };
+      });
+
+      console.log('✅ Customers fetched:', customersWithStats);
+      setCustomers(customersWithStats);
+    } catch (err) {
+      console.error('❌ Error in fetchCustomers:', err);
+      setError(err.message);
+      setCustomers([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchCustomers();
+  }, []);
+
+  const deleteCustomer = async (customerId) => {
+    try {
+      const { error } = await supabase
+        .from('users')
+        .delete()
+        .eq('id', customerId);
+
+      if (error) throw error;
+
+      setCustomers(customers.filter(c => c.id !== customerId));
+      return true;
+    } catch (err) {
+      console.error('Error deleting customer:', err);
+      throw err;
+    }
+  };
+
+  return {
+    customers,
+    loading,
+    error,
+    deleteCustomer,
+    refetch: fetchCustomers
   };
 };
