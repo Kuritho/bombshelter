@@ -1,13 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
-import { useMenuItems, useOrders, useReviews, useEmployees } from '../hooks/useSupabase';
-import { initStorage, uploadImage as uploadImageUtil, deleteImage as deleteImageUtil, testDirectBucketAccess } from '../utils/storage';
+import { 
+  useMenuItems, 
+  useOrders, 
+  useReviews, 
+  useEmployees, 
+  useCustomers 
+} from '../hooks/useSupabase';
+import { 
+  initStorage, 
+  uploadImage as uploadImageUtil, 
+  deleteImage as deleteImageUtil, 
+  testDirectBucketAccess 
+} from '../utils/storage';
 import './OwnerDashboard.css';
 
 // Import logo
 import logo from '../assets/logo.jpg';
 
-// Icons
+// ============================================
+// ICONS
+// ============================================
 const LogOutIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
@@ -66,6 +79,22 @@ const UsersIcon = () => (
     <circle cx="9" cy="7" r="4"/>
     <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
     <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+  </svg>
+);
+
+const CustomersIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+    <circle cx="9" cy="7" r="4"/>
+    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+  </svg>
+);
+
+const SearchIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="11" cy="11" r="8"/>
+    <line x1="21" y1="21" x2="16.65" y2="16.65"/>
   </svg>
 );
 
@@ -143,7 +172,7 @@ function ConfirmModal({
   onConfirm, 
   onCancel,
   isLoading = false,
-  variant = 'danger' // 'danger' | 'warning'
+  variant = 'danger'
 }) {
   if (!isOpen) return null;
 
@@ -169,7 +198,7 @@ function ConfirmModal({
             {cancelText}
           </button>
           <button 
-            className="confirm-btn confirm-btn-yes"
+            className={`confirm-btn confirm-btn-yes confirm-btn-yes-${variant}`}
             onClick={onConfirm}
             disabled={isLoading}
           >
@@ -181,6 +210,9 @@ function ConfirmModal({
   );
 }
 
+// ============================================
+// MAIN COMPONENT
+// ============================================
 function OwnerDashboard({ user, onLogout }) {
   // State for active tab
   const [activeTab, setActiveTab] = useState('orders');
@@ -231,6 +263,10 @@ function OwnerDashboard({ user, onLogout }) {
   // State for deleting product
   const [deletingProduct, setDeletingProduct] = useState(null);
 
+  // Customer management state
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [deletingCustomer, setDeletingCustomer] = useState(null);
+
   // ============================================
   // CONFIRMATION MODAL STATE
   // ============================================
@@ -244,7 +280,6 @@ function OwnerDashboard({ user, onLogout }) {
     variant: 'danger'
   });
 
-  // Helper to open confirmation modal
   const openConfirm = ({ title, message, confirmText, cancelText, onConfirm, variant = 'danger' }) => {
     setConfirmModal({
       isOpen: true,
@@ -257,7 +292,6 @@ function OwnerDashboard({ user, onLogout }) {
     });
   };
 
-  // Helper to close confirmation modal
   const closeConfirm = () => {
     setConfirmModal(prev => ({ ...prev, isOpen: false, onConfirm: null }));
   };
@@ -282,7 +316,9 @@ function OwnerDashboard({ user, onLogout }) {
   const [profileError, setProfileError] = useState('');
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   
-  // Hooks
+  // ============================================
+  // HOOKS
+  // ============================================
   const { 
     items: menuItems, 
     addMenuItem, 
@@ -303,7 +339,17 @@ function OwnerDashboard({ user, onLogout }) {
     refetch: fetchEmployees 
   } = useEmployees();
 
-  // Initialize storage on component mount
+  const { 
+    customers,
+    loading: loadingCustomers,
+    error: customersError,
+    deleteCustomer,
+    refetch: fetchCustomers
+  } = useCustomers();
+
+  // ============================================
+  // STORAGE CHECK ON MOUNT
+  // ============================================
   useEffect(() => {
     const checkStorage = async () => {
       try {
@@ -341,7 +387,9 @@ function OwnerDashboard({ user, onLogout }) {
     checkStorage();
   }, []);
 
-  // Handle employee creation
+  // ============================================
+  // EMPLOYEE HANDLERS
+  // ============================================
   const handleCreateEmployee = async (e) => {
     e.preventDefault();
     setEmployeeError('');
@@ -367,9 +415,6 @@ function OwnerDashboard({ user, onLogout }) {
     }
   };
 
-  // ============================================
-  // HANDLE EMPLOYEE DELETION (WITH CONFIRMATION)
-  // ============================================
   const handleDeleteEmployee = (employeeId, employeeName) => {
     openConfirm({
       title: 'Delete Employee?',
@@ -393,7 +438,9 @@ function OwnerDashboard({ user, onLogout }) {
     });
   };
 
-  // Handle image selection
+  // ============================================
+  // IMAGE HANDLERS
+  // ============================================
   const handleImageSelect = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -419,7 +466,6 @@ function OwnerDashboard({ user, onLogout }) {
     }
   };
 
-  // Handle edit image selection
   const handleEditImageSelect = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -445,17 +491,17 @@ function OwnerDashboard({ user, onLogout }) {
     }
   };
 
-  // Upload image wrapper
   const uploadImage = async (file) => {
     return uploadImageUtil(file);
   };
 
-  // Delete image wrapper
   const deleteImage = async (imageUrl) => {
     return deleteImageUtil(imageUrl);
   };
 
-  // Handle product upload
+  // ============================================
+  // PRODUCT HANDLERS
+  // ============================================
   const handleUploadProduct = async (e) => {
     e.preventDefault();
     
@@ -528,7 +574,6 @@ function OwnerDashboard({ user, onLogout }) {
     }
   };
 
-  // Handle edit product
   const handleEditProduct = (product) => {
     setEditingProduct(product);
     setEditForm({
@@ -542,7 +587,6 @@ function OwnerDashboard({ user, onLogout }) {
     setIsEditing(true);
   };
 
-  // Handle update product
   const handleUpdateProduct = async (e) => {
     e.preventDefault();
     
@@ -607,9 +651,6 @@ function OwnerDashboard({ user, onLogout }) {
     }
   };
 
-  // ============================================
-  // HANDLE PRODUCT DELETION (WITH CONFIRMATION)
-  // ============================================
   const handleDeleteProduct = (product) => {
     openConfirm({
       title: 'Delete Product?',
@@ -641,7 +682,9 @@ function OwnerDashboard({ user, onLogout }) {
     });
   };
 
-  // Update order status
+  // ============================================
+  // ORDER HANDLERS
+  // ============================================
   const updateOrderStatus = async (orderId, newStatus) => {
     try {
       const { error } = await supabase
@@ -659,7 +702,48 @@ function OwnerDashboard({ user, onLogout }) {
   };
 
   // ============================================
-  // HANDLE LOGOUT (WITH CONFIRMATION)
+  // CUSTOMER HANDLERS
+  // ============================================
+  const handleDeleteCustomer = (customer) => {
+    openConfirm({
+      title: 'Delete Customer?',
+      message: `Are you sure you want to delete customer "${customer.name}" (${customer.email})? This action cannot be undone.`,
+      confirmText: 'Yes, Delete',
+      cancelText: 'No, Cancel',
+      variant: 'danger',
+      onConfirm: async () => {
+        setDeletingCustomer(customer.id);
+        closeConfirm();
+        try {
+          await deleteCustomer(customer.id);
+          alert('✅ Customer deleted successfully!');
+        } catch (error) {
+          console.error('Error deleting customer:', error);
+          alert('❌ Failed to delete customer: ' + error.message);
+        } finally {
+          setDeletingCustomer(null);
+        }
+      }
+    });
+  };
+
+  const filteredCustomers = customers.filter(customer => {
+    if (!customerSearch.trim()) return true;
+    const q = customerSearch.toLowerCase();
+    return (
+      (customer.name || '').toLowerCase().includes(q) ||
+      (customer.email || '').toLowerCase().includes(q)
+    );
+  });
+
+  const customerStats = {
+    total: customers.length,
+    withOrders: customers.filter(c => c.total_orders > 0).length,
+    totalRevenue: customers.reduce((sum, c) => sum + (c.total_spent || 0), 0),
+  };
+
+  // ============================================
+  // LOGOUT
   // ============================================
   const handleLogout = () => {
     openConfirm({
@@ -675,7 +759,9 @@ function OwnerDashboard({ user, onLogout }) {
     });
   };
 
-  // Profile Update Functions
+  // ============================================
+  // PROFILE HANDLERS
+  // ============================================
   const handleProfileUpdate = async (e) => {
     e.preventDefault();
     setProfileLoading(true);
@@ -745,13 +831,14 @@ function OwnerDashboard({ user, onLogout }) {
     }
   };
 
-  // Filter orders
+  // ============================================
+  // FILTERS AND METRICS
+  // ============================================
   const filteredOrders = orders.filter(order => {
     if (orderStatus === 'all') return true;
     return order.status === orderStatus;
   });
 
-  // Calculate sales metrics
   const calculateMetrics = () => {
     const completedOrders = orders.filter(o => o.status === 'completed');
     const today = new Date();
@@ -783,7 +870,6 @@ function OwnerDashboard({ user, onLogout }) {
 
   const metrics = calculateMetrics();
 
-  // Calculate product analytics
   const getProductAnalytics = () => {
     const productSales = {};
     
@@ -810,7 +896,6 @@ function OwnerDashboard({ user, onLogout }) {
 
   const analytics = getProductAnalytics();
 
-  // Get status badge color
   const getStatusBadge = (status) => {
     const statusMap = {
       pending: 'badge-warning',
@@ -821,7 +906,6 @@ function OwnerDashboard({ user, onLogout }) {
     return statusMap[status] || 'badge-secondary';
   };
 
-  // Calculate chart data from orders
   const getChartData = () => {
     const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     const data = days.map(day => ({ day, amount: 0 }));
@@ -850,6 +934,9 @@ function OwnerDashboard({ user, onLogout }) {
     return <span className="metric-trend trend-down"><TrendingDownIcon /> {value}% vs last period</span>;
   };
 
+  // ============================================
+  // RENDER
+  // ============================================
   return (
     <div className="owner-dashboard">
       {/* Header */}
@@ -931,6 +1018,16 @@ function OwnerDashboard({ user, onLogout }) {
           <span>Employees</span>
         </button>
         <button 
+          className={`nav-tab ${activeTab === 'customers' ? 'active' : ''}`}
+          onClick={() => {
+            setActiveTab('customers');
+            fetchCustomers();
+          }}
+        >
+          <CustomersIcon />
+          <span>Customers</span>
+        </button>
+        <button 
           className={`nav-tab ${activeTab === 'profile' ? 'active' : ''}`}
           onClick={() => {
             setActiveTab('profile');
@@ -960,7 +1057,9 @@ function OwnerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* ORDERS TAB */}
+      {/* ============================================
+          ORDERS TAB
+          ============================================ */}
       {activeTab === 'orders' && (
         <div className="orders-section">
           <div className="metrics-grid">
@@ -1120,7 +1219,9 @@ function OwnerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* MENU TAB */}
+      {/* ============================================
+          MENU TAB
+          ============================================ */}
       {activeTab === 'menu' && (
         <div className="menu-section">
           <div className="menu-header">
@@ -1187,7 +1288,9 @@ function OwnerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* EDIT PRODUCT MODAL */}
+      {/* ============================================
+          EDIT PRODUCT MODAL
+          ============================================ */}
       {isEditing && editingProduct && (
         <div className="modal-overlay" onClick={() => {
           setIsEditing(false);
@@ -1353,7 +1456,9 @@ function OwnerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* ADD PRODUCT TAB */}
+      {/* ============================================
+          ADD PRODUCT TAB
+          ============================================ */}
       {activeTab === 'add-product' && (
         <div className="add-product-section">
           <div className="add-product-container">
@@ -1514,7 +1619,9 @@ function OwnerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* ANALYTICS TAB */}
+      {/* ============================================
+          ANALYTICS TAB
+          ============================================ */}
       {activeTab === 'analytics' && (
         <div className="analytics-section">
           <h2>Sales Analytics</h2>
@@ -1601,7 +1708,9 @@ function OwnerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* FEEDBACK TAB */}
+      {/* ============================================
+          FEEDBACK TAB
+          ============================================ */}
       {activeTab === 'feedback' && (
         <div className="feedback-section">
           <h2>Customer Reviews</h2>
@@ -1631,7 +1740,9 @@ function OwnerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* EMPLOYEES TAB */}
+      {/* ============================================
+          EMPLOYEES TAB
+          ============================================ */}
       {activeTab === 'employees' && (
         <div className="employees-container">
           <div className="employees-grid">
@@ -1760,7 +1871,164 @@ function OwnerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* PROFILE TAB */}
+      {/* ============================================
+          CUSTOMERS TAB
+          ============================================ */}
+      {activeTab === 'customers' && (
+        <div className="customers-container">
+          <div className="customers-header">
+            <div>
+              <h2>Customer Directory</h2>
+              <p className="customers-subtitle">
+                View all registered customers and their activity
+              </p>
+            </div>
+            <button 
+              className="btn btn-secondary btn-sm"
+              onClick={fetchCustomers}
+              disabled={loadingCustomers}
+            >
+              {loadingCustomers ? '⏳ Loading...' : '🔄 Refresh'}
+            </button>
+          </div>
+
+          <div className="customers-stats-grid">
+            <div className="customer-stat-card">
+              <div className="customer-stat-icon">👥</div>
+              <div>
+                <span className="customer-stat-value">{customerStats.total}</span>
+                <span className="customer-stat-label">Total Customers</span>
+              </div>
+            </div>
+            <div className="customer-stat-card">
+              <div className="customer-stat-icon">🛍️</div>
+              <div>
+                <span className="customer-stat-value">{customerStats.withOrders}</span>
+                <span className="customer-stat-label">Active Customers</span>
+              </div>
+            </div>
+            <div className="customer-stat-card highlight">
+              <div className="customer-stat-icon">💰</div>
+              <div>
+                <span className="customer-stat-value">
+                  ₱{customerStats.totalRevenue.toLocaleString()}
+                </span>
+                <span className="customer-stat-label">Total Revenue</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="customers-search-bar">
+            <SearchIcon />
+            <input
+              type="text"
+              placeholder="Search by name or email..."
+              value={customerSearch}
+              onChange={(e) => setCustomerSearch(e.target.value)}
+            />
+            {customerSearch && (
+              <button 
+                className="search-clear-btn"
+                onClick={() => setCustomerSearch('')}
+              >
+                ×
+              </button>
+            )}
+          </div>
+
+          {customersError && (
+            <div className="error-message" style={{marginBottom: '1rem'}}>
+              ❌ Error: {customersError}
+            </div>
+          )}
+
+          {loadingCustomers ? (
+            <div className="customers-loading">⏳ Loading customers...</div>
+          ) : filteredCustomers.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon">👥</div>
+              <p>{customerSearch ? 'No customers match your search.' : 'No customers found.'}</p>
+            </div>
+          ) : (
+            <div className="customers-table-wrapper">
+              <table className="customers-table">
+                <thead>
+                  <tr>
+                    <th>Customer</th>
+                    <th>Email</th>
+                    <th>Joined</th>
+                    <th>Orders</th>
+                    <th>Total Spent</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredCustomers.map(customer => (
+                    <tr key={customer.id}>
+                      <td>
+                        <div className="customer-cell">
+                          <div className="customer-avatar">
+                            {(customer.name || 'U').charAt(0).toUpperCase()}
+                          </div>
+                          <div className="customer-name-block">
+                            <span className="customer-name-text">
+                              {customer.name || 'Unnamed User'}
+                            </span>
+                            <span className="customer-role-tag">Customer</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        <span className="customer-email">{customer.email}</span>
+                      </td>
+                      <td>
+                        <span className="customer-joined">
+                          {customer.created_at 
+                            ? new Date(customer.created_at).toLocaleDateString('en-PH', {
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric'
+                              })
+                            : 'N/A'}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="customer-orders-count">
+                          <strong>{customer.total_orders || 0}</strong>
+                          <span className="orders-breakdown">
+                            ({customer.completed_orders || 0} completed)
+                          </span>
+                        </span>
+                      </td>
+                      <td>
+                        <span className="customer-total-spent">
+                          ₱{Number(customer.total_spent || 0).toLocaleString()}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="customer-actions">
+                          <button 
+                            className="action-btn delete-btn"
+                            onClick={() => handleDeleteCustomer(customer)}
+                            disabled={deletingCustomer === customer.id}
+                            title="Delete customer"
+                          >
+                            {deletingCustomer === customer.id ? '⏳' : <DeleteIcon />}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ============================================
+          PROFILE TAB
+          ============================================ */}
       {activeTab === 'profile' && (
         <div className="profile-view">
           <div className="profile-container">
