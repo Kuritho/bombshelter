@@ -3,10 +3,7 @@ import { supabase } from '../supabaseClient';
 import { useMenuItems, useOrders } from '../hooks/useSupabase';
 import './CustomerDashboard.css';
 
-// Import logo
 import logo from '../assets/logo.jpg';
-
-// Import QR codes
 import gcashQR from '../assets/gcash-qr.png';
 import paymayaQR from '../assets/paymaya-qr.png';
 
@@ -162,7 +159,7 @@ const PayMayaIcon = () => (
 );
 
 // ============================================
-// HELPER: Payment Status Display
+// HELPERS
 // ============================================
 const getPaymentStatusInfo = (status) => {
   switch (status) {
@@ -180,13 +177,13 @@ const getPaymentStatusInfo = (status) => {
 };
 
 // ============================================
-// CONFIRMATION MODAL COMPONENT
+// CONFIRMATION MODAL
 // ============================================
 function ConfirmModal({ 
   isOpen, title, message, 
   confirmText = 'Yes, Confirm', cancelText = 'No, Cancel',
   onConfirm, onCancel, isLoading = false,
-  variant = 'danger', iconType = 'warning'
+  variant = 'warning', iconType = 'warning'
 }) {
   if (!isOpen) return null;
 
@@ -278,23 +275,23 @@ function CustomerDashboard({ user, onLogout }) {
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false, title: '', message: '',
     confirmText: 'Yes, Confirm', cancelText: 'No, Cancel',
-    onConfirm: null, variant: 'danger', iconType: 'warning'
+    onConfirm: null, variant: 'warning', iconType: 'warning', isLoading: false
   });
 
   const openConfirm = ({ 
     title, message, confirmText, cancelText, onConfirm, 
-    variant = 'danger', iconType = 'warning'
+    variant = 'warning', iconType = 'warning'
   }) => {
     setConfirmModal({
       isOpen: true, title, message,
       confirmText: confirmText || 'Yes, Confirm',
       cancelText: cancelText || 'No, Cancel',
-      onConfirm, variant, iconType
+      onConfirm, variant, iconType, isLoading: false
     });
   };
 
   const closeConfirm = () => {
-    setConfirmModal(prev => ({ ...prev, isOpen: false, onConfirm: null }));
+    setConfirmModal(prev => ({ ...prev, isOpen: false, onConfirm: null, isLoading: false }));
   };
   
   const { items: menuItems, loading: menuLoading } = useMenuItems();
@@ -312,13 +309,11 @@ function CustomerDashboard({ user, onLogout }) {
         e.target.value = '';
         return;
       }
-
       if (file.size > 5 * 1024 * 1024) {
         alert('Image size must be less than 5MB');
         e.target.value = '';
         return;
       }
-
       setGcashProof(file);
       const reader = new FileReader();
       reader.onloadend = () => setGcashProofPreview(reader.result);
@@ -326,6 +321,9 @@ function CustomerDashboard({ user, onLogout }) {
     }
   };
 
+  // ============================================
+  // PAYMENT METHOD — WITH CONFIRMATION
+  // ============================================
   const handlePaymentMethodChange = (method) => {
     if (method === paymentMethod) return;
     
@@ -336,7 +334,6 @@ function CustomerDashboard({ user, onLogout }) {
         confirmText: 'Yes, Switch',
         cancelText: 'No, Keep Current',
         variant: 'warning',
-        iconType: 'warning',
         onConfirm: () => {
           closeConfirm();
           setPaymentMethod(method);
@@ -374,7 +371,6 @@ function CustomerDashboard({ user, onLogout }) {
       setCartNotification(`QR code downloaded!`);
       setTimeout(() => setCartNotification(null), 3000);
     } catch (error) {
-      console.error('❌ Download QR error:', error);
       alert('Failed to download QR code. Please try long-pressing the image instead.');
     }
   };
@@ -382,41 +378,59 @@ function CustomerDashboard({ user, onLogout }) {
   // ============================================
   // CART OPERATIONS
   // ============================================
+
+  // Add to cart — WITH confirmation
   const addToCart = (item) => {
     setError(null);
     const existing = cart.find(cartItem => cartItem.id === item.id);
-    if (existing) {
-      setCart(cart.map(c => c.id === item.id ? { ...c, qty: c.qty + 1 } : c));
-      setCartNotification(`Added another ${item.name} to cart`);
-    } else {
-      setCart([...cart, { ...item, qty: 1 }]);
-      setCartNotification(`${item.name} added to cart`);
-    }
-    setTimeout(() => setCartNotification(null), 2500);
+    
+    openConfirm({
+      title: 'Add to Cart?',
+      message: `Add "${item.name}" (₱${item.price}) to your cart?`,
+      confirmText: 'Yes, Add to Cart',
+      cancelText: 'No, Cancel',
+      variant: 'warning',
+      onConfirm: () => {
+        closeConfirm();
+        if (existing) {
+          setCart(cart.map(c => c.id === item.id ? { ...c, qty: c.qty + 1 } : c));
+          setCartNotification(`Added another ${item.name} to cart`);
+        } else {
+          setCart([...cart, { ...item, qty: 1 }]);
+          setCartNotification(`${item.name} added to cart`);
+        }
+        setTimeout(() => setCartNotification(null), 2500);
+      }
+    });
   };
 
+  // ============================================
+  // INCREASE QUANTITY — instant, NO confirmation
+  // ============================================
   const increaseQty = (id) => {
-    setCart(cart.map(item => 
-      item.id === id ? { ...item, qty: item.qty + 1 } : item
-    ));
     const item = cart.find(c => c.id === id);
-    if (item) {
-      setCartNotification(`Added another ${item.name}`);
-      setTimeout(() => setCartNotification(null), 2000);
-    }
+    if (!item) return;
+
+    setCart(cart.map(c => c.id === id ? { ...c, qty: c.qty + 1 } : c));
+    setCartNotification(`Added another ${item.name}`);
+    setTimeout(() => setCartNotification(null), 2000);
   };
 
+  // ============================================
+  // DECREASE QUANTITY — instant when qty > 1, confirm when qty = 1
+  // ============================================
   const decreaseQty = (id) => {
     const item = cart.find(c => c.id === id);
     if (!item) return;
 
+    // When qty is 1, decreasing removes the item — keep confirmation
     if (item.qty === 1) {
       openConfirm({
         title: 'Remove Item?',
-        message: `Decreasing quantity will remove "${item.name}" from your cart. Continue?`,
+        message: `This will remove "${item.name}" from your cart entirely. Continue?`,
         confirmText: 'Yes, Remove',
         cancelText: 'No, Keep',
-        variant: 'warning',
+        variant: 'danger',
         iconType: 'x-circle',
         onConfirm: () => {
           closeConfirm();
@@ -428,13 +442,13 @@ function CustomerDashboard({ user, onLogout }) {
       return;
     }
 
-    setCart(cart.map(c => 
-      c.id === id ? { ...c, qty: c.qty - 1 } : c
-    ));
+    // Normal decrease — no confirmation
+    setCart(cart.map(c => c.id === id ? { ...c, qty: c.qty - 1 } : c));
     setCartNotification(`Reduced ${item.name} quantity`);
     setTimeout(() => setCartNotification(null), 2000);
   };
 
+  // Remove from cart — WITH confirmation
   const removeFromCart = (id) => {
     const item = cart.find(c => c.id === id);
     if (!item) return;
@@ -444,7 +458,7 @@ function CustomerDashboard({ user, onLogout }) {
       message: `Are you sure you want to remove "${item.name}" from your cart?`,
       confirmText: 'Yes, Remove',
       cancelText: 'No, Keep',
-      variant: 'warning',
+      variant: 'danger',
       iconType: 'x-circle',
       onConfirm: () => {
         closeConfirm();
@@ -456,6 +470,7 @@ function CustomerDashboard({ user, onLogout }) {
     });
   };
 
+  // Clear cart — WITH confirmation
   const clearCart = () => {
     openConfirm({
       title: 'Clear Entire Cart?',
@@ -463,7 +478,6 @@ function CustomerDashboard({ user, onLogout }) {
       confirmText: 'Yes, Clear All',
       cancelText: 'No, Keep Items',
       variant: 'danger',
-      iconType: 'warning',
       onConfirm: () => {
         closeConfirm();
         setCart([]);
@@ -474,16 +488,15 @@ function CustomerDashboard({ user, onLogout }) {
   };
 
   // ============================================
-  // CANCEL ORDER
+  // CANCEL ORDER — WITH CONFIRMATION
   // ============================================
   const cancelOrder = (order) => {
     openConfirm({
       title: 'Cancel Order?',
-      message: `Are you sure you want to cancel order #${order.order_number || order.id.slice(0, 8)}? This action cannot be undone.`,
+      message: `Are you sure you want to cancel order #${order.order_number || order.id.slice(0, 8)}? This action cannot be undone and the order will be permanently cancelled.`,
       confirmText: 'Yes, Cancel Order',
       cancelText: 'No, Keep Order',
       variant: 'danger',
-      iconType: 'warning',
       onConfirm: async () => {
         setCancellingOrder(order.id);
         closeConfirm();
@@ -497,7 +510,6 @@ function CustomerDashboard({ user, onLogout }) {
           await refreshOrders();
           alert('✅ Order cancelled successfully!');
         } catch (err) {
-          console.error('❌ Cancel order error:', err);
           alert('❌ Failed to cancel order: ' + err.message);
         } finally {
           setCancellingOrder(null);
@@ -534,9 +546,9 @@ function CustomerDashboard({ user, onLogout }) {
   };
 
   // ============================================
-  // CHECKOUT
+  // CHECKOUT — WITH CONFIRMATION
   // ============================================
-  const handleCheckout = async () => {
+  const handleCheckout = () => {
     if (!gcashProof) {
       alert(`Please upload your ${paymentMethod === 'gcash' ? 'GCash' : 'PayMaya'} payment proof to proceed.`);
       return;
@@ -547,164 +559,222 @@ function CustomerDashboard({ user, onLogout }) {
       return;
     }
 
-    setError(null);
-    setOrderLoading(true);
+    const itemSummary = cart
+      .map(item => `• ${item.qty}x ${item.name} — ₱${(item.price * item.qty).toFixed(2)}`)
+      .join('\n');
 
-    try {
-      let proofImageUrl = null;
-      try {
-        proofImageUrl = await uploadProofImage(gcashProof);
-      } catch (uploadError) {
-        alert('Failed to upload payment proof. Please try again.');
-        setOrderLoading(false);
-        return;
+    openConfirm({
+      title: 'Place Order?',
+      message: `You are about to place an order:\n\n${itemSummary}\n\nOrder Type: ${orderType === 'takeout' ? '📦 Takeout' : '🍽️ Dine In'}\nPayment: ${paymentMethod === 'gcash' ? '💙 GCash' : '💚 PayMaya'}\nTotal: ₱${cartTotal.toFixed(2)}\n\nMake sure you've paid the exact amount and uploaded your receipt. This action cannot be undone.`,
+      confirmText: 'Yes, Place Order',
+      cancelText: 'No, Review Again',
+      variant: 'warning',
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isLoading: true }));
+        setError(null);
+        setOrderLoading(true);
+
+        try {
+          let proofImageUrl = null;
+          try {
+            proofImageUrl = await uploadProofImage(gcashProof);
+          } catch (uploadError) {
+            setConfirmModal(prev => ({ ...prev, isLoading: false }));
+            alert('Failed to upload payment proof. Please try again.');
+            setOrderLoading(false);
+            return;
+          }
+
+          const orderData = {
+            customer_id: user.id,
+            status: 'pending',
+            payment_status: 'unverified',
+            payment_method: paymentMethod,
+            total_amount: cartTotal,
+            order_type: orderType,
+            proof_image_url: proofImageUrl
+          };
+
+          let newOrder;
+          try {
+            newOrder = await createOrder(orderData);
+          } catch (orderError) {
+            setConfirmModal(prev => ({ ...prev, isLoading: false }));
+            alert('Failed to create order: ' + (orderError.message || 'Please try again.'));
+            setOrderLoading(false);
+            return;
+          }
+
+          const orderItems = cart.map(item => ({
+            order_id: newOrder.id,
+            menu_item_id: item.id,
+            quantity: item.qty,
+            price_at_time: item.price
+          }));
+
+          const { error: itemsError } = await supabase
+            .from('order_items')
+            .insert(orderItems);
+
+          if (itemsError) {
+            setConfirmModal(prev => ({ ...prev, isLoading: false }));
+            alert('Failed to save order items. Please contact support.');
+            setOrderLoading(false);
+            return;
+          }
+
+          setCart([]);
+          setGcashProof(null);
+          setGcashProofPreview(null);
+          await refreshOrders();
+          setActiveTab('orders');
+          
+          closeConfirm();
+          alert(`✅ Order placed successfully!\nOrder #: ${newOrder.order_number || newOrder.id.slice(0, 8)}`);
+        } catch (error) {
+          setConfirmModal(prev => ({ ...prev, isLoading: false }));
+          setError(error.message || 'Failed to place order. Please try again.');
+          alert('❌ Failed to place order: ' + (error.message || 'Please try again.'));
+        } finally {
+          setOrderLoading(false);
+        }
       }
-
-      const orderData = {
-        customer_id: user.id,
-        status: 'pending',
-        payment_status: 'unverified',
-        payment_method: paymentMethod,
-        total_amount: cartTotal,
-        order_type: orderType,
-        proof_image_url: proofImageUrl
-      };
-
-      let newOrder;
-      try {
-        newOrder = await createOrder(orderData);
-      } catch (orderError) {
-        alert('Failed to create order: ' + (orderError.message || 'Please try again.'));
-        setOrderLoading(false);
-        return;
-      }
-
-      const orderItems = cart.map(item => ({
-        order_id: newOrder.id,
-        menu_item_id: item.id,
-        quantity: item.qty,
-        price_at_time: item.price
-      }));
-
-      const { error: itemsError } = await supabase
-        .from('order_items')
-        .insert(orderItems);
-
-      if (itemsError) {
-        alert('Failed to save order items. Please contact support.');
-        setOrderLoading(false);
-        return;
-      }
-
-      setCart([]);
-      setGcashProof(null);
-      setGcashProofPreview(null);
-      await refreshOrders();
-      setActiveTab('orders');
-      
-      alert(`✅ Order placed successfully! Order #: ${newOrder.order_number || newOrder.id.slice(0, 8)}`);
-    } catch (error) {
-      setError(error.message || 'Failed to place order. Please try again.');
-      alert('❌ Failed to place order: ' + (error.message || 'Please try again.'));
-    } finally {
-      setOrderLoading(false);
-    }
+    });
   };
 
   // ============================================
-  // SUBMIT REVIEW
+  // SUBMIT REVIEW — WITH CONFIRMATION
   // ============================================
-  const submitReview = async (orderId) => {
+  const submitReview = (orderId) => {
     if (!reviewForm.text.trim()) {
       alert("Please write a recommendation/review.");
       return;
     }
 
-    try {
-      const { error } = await supabase
-        .from('reviews')
-        .insert([{
-          order_id: orderId,
-          customer_id: user.id,
-          rating: reviewForm.rating,
-          text: reviewForm.text
-        }]);
+    openConfirm({
+      title: 'Submit Review?',
+      message: `Are you sure you want to submit this ${reviewForm.rating}-star review?\n\n"${reviewForm.text}"\n\nThis will be visible on the owner's dashboard.`,
+      confirmText: 'Yes, Submit Review',
+      cancelText: 'No, Edit First',
+      variant: 'warning',
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isLoading: true }));
 
-      if (error) throw error;
+        try {
+          const { error } = await supabase
+            .from('reviews')
+            .insert([{
+              order_id: orderId,
+              customer_id: user.id,
+              rating: reviewForm.rating,
+              text: reviewForm.text
+            }]);
 
-      setReviewForm({ orderId: null, rating: 5, text: '' });
-      await refreshOrders();
-      alert('✅ Review submitted successfully!');
-    } catch (error) {
-      alert('❌ Failed to submit review: ' + error.message);
-    }
+          if (error) throw error;
+
+          setReviewForm({ orderId: null, rating: 5, text: '' });
+          await refreshOrders();
+          
+          closeConfirm();
+          alert('✅ Review submitted successfully!');
+        } catch (error) {
+          setConfirmModal(prev => ({ ...prev, isLoading: false }));
+          alert('❌ Failed to submit review: ' + error.message);
+        }
+      }
+    });
   };
 
   // ============================================
-  // PROFILE
+  // PROFILE — WITH CONFIRMATION
   // ============================================
-  const handleProfileUpdate = async (e) => {
+  const handleProfileUpdate = (e) => {
     e.preventDefault();
-    setProfileLoading(true);
-    setProfileError('');
-    setProfileSuccess('');
-
-    try {
-      const { error: updateError } = await supabase
-        .from('users')
-        .update({ name: profile.name })
-        .eq('id', user.id);
-
-      if (updateError) throw updateError;
-
-      setProfileSuccess('✅ Profile updated successfully!');
-      setIsEditingProfile(false);
-      user.name = profile.name;
-      setTimeout(() => setProfileSuccess(''), 3000);
-    } catch (err) {
-      setProfileError(err.message || 'Failed to update profile');
-    } finally {
-      setProfileLoading(false);
+    
+    if (profile.name === user?.name) {
+      alert('No changes to save.');
+      return;
     }
+
+    openConfirm({
+      title: 'Update Profile?',
+      message: `Are you sure you want to change your name to "${profile.name}"?`,
+      confirmText: 'Yes, Update',
+      cancelText: 'No, Cancel',
+      variant: 'warning',
+      onConfirm: async () => {
+        closeConfirm();
+        setProfileLoading(true);
+        setProfileError('');
+        setProfileSuccess('');
+
+        try {
+          const { error: updateError } = await supabase
+            .from('users')
+            .update({ name: profile.name })
+            .eq('id', user.id);
+
+          if (updateError) throw updateError;
+
+          setProfileSuccess('✅ Profile updated successfully!');
+          setIsEditingProfile(false);
+          user.name = profile.name;
+          setTimeout(() => setProfileSuccess(''), 3000);
+        } catch (err) {
+          setProfileError(err.message || 'Failed to update profile');
+        } finally {
+          setProfileLoading(false);
+        }
+      }
+    });
   };
 
-  const handlePasswordUpdate = async (e) => {
+  const handlePasswordUpdate = (e) => {
     e.preventDefault();
-    setProfileLoading(true);
     setProfileError('');
     setProfileSuccess('');
 
     if (passwordData.newPassword !== passwordData.confirmPassword) {
       setProfileError('New passwords do not match');
-      setProfileLoading(false);
       return;
     }
 
     if (passwordData.newPassword.length < 6) {
       setProfileError('New password must be at least 6 characters');
-      setProfileLoading(false);
       return;
     }
 
-    try {
-      const { error: passwordError } = await supabase.auth.updateUser({
-        password: passwordData.newPassword
-      });
+    openConfirm({
+      title: 'Change Password?',
+      message: 'Are you sure you want to change your account password? You will need to use the new password on your next login.',
+      confirmText: 'Yes, Change Password',
+      cancelText: 'No, Cancel',
+      variant: 'warning',
+      onConfirm: async () => {
+        closeConfirm();
+        setProfileLoading(true);
 
-      if (passwordError) throw passwordError;
+        try {
+          const { error: passwordError } = await supabase.auth.updateUser({
+            password: passwordData.newPassword
+          });
 
-      setProfileSuccess('✅ Password updated successfully!');
-      setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
-      setTimeout(() => setProfileSuccess(''), 3000);
-    } catch (err) {
-      setProfileError(err.message || 'Failed to update password');
-    } finally {
-      setProfileLoading(false);
-    }
+          if (passwordError) throw passwordError;
+
+          setProfileSuccess('✅ Password updated successfully!');
+          setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+          setTimeout(() => setProfileSuccess(''), 3000);
+        } catch (err) {
+          setProfileError(err.message || 'Failed to update password');
+        } finally {
+          setProfileLoading(false);
+        }
+      }
+    });
   };
 
   // ============================================
-  // LOGOUT
+  // LOGOUT — WITH CONFIRMATION
   // ============================================
   const handleLogout = () => {
     openConfirm({
@@ -713,7 +783,6 @@ function CustomerDashboard({ user, onLogout }) {
       confirmText: 'Yes, Log Out',
       cancelText: 'No, Stay',
       variant: 'warning',
-      iconType: 'warning',
       onConfirm: () => {
         closeConfirm();
         onLogout();
@@ -809,7 +878,9 @@ function CustomerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* MENU VIEW */}
+      {/* ============================================
+          MENU VIEW
+          ============================================ */}
       {activeTab === 'menu' && (
         <div className="menu-view">
           <div className="menu-header-section">
@@ -839,7 +910,9 @@ function CustomerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* CART VIEW */}
+      {/* ============================================
+          CART VIEW
+          ============================================ */}
       {activeTab === 'cart' && (
         <div className="cart-view">
           <div className="cart-container">
@@ -1061,7 +1134,9 @@ function CustomerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* ORDERS VIEW */}
+      {/* ============================================
+          ORDERS VIEW
+          ============================================ */}
       {activeTab === 'orders' && (
         <div className="orders-view">
           <div className="orders-header">
@@ -1088,9 +1163,7 @@ function CustomerDashboard({ user, onLogout }) {
                   <div key={order.id} className={`order-card ${isExpanded ? 'expanded' : ''}`}>
                     <div className="order-header">
                       <div className="order-info">
-                        <span className="order-id">
-                          #{order.order_number || order.id.slice(0, 8)}
-                        </span>
+                        <span className="order-id">#{order.order_number || order.id.slice(0, 8)}</span>
                         <span className="order-date">
                           {new Date(order.created_at).toLocaleDateString('en-PH', {
                             year: 'numeric', month: 'short', day: 'numeric',
@@ -1104,9 +1177,11 @@ function CustomerDashboard({ user, onLogout }) {
                         </span>
                         <span className={`order-status ${order.status}`}>
                           {order.status === 'pending' && '⏳ Pending'}
+                          {order.status === 'preparing' && '📦 Preparing'}
                           {order.status === 'processing' && '🔄 Processing'}
                           {order.status === 'completed' && '✅ Completed'}
                           {order.status === 'cancelled' && '❌ Cancelled'}
+                          {order.status === 'declined' && '🚫 Declined'}
                         </span>
                       </div>
                     </div>
@@ -1154,13 +1229,9 @@ function CustomerDashboard({ user, onLogout }) {
                             </div>
                             {order.order_items?.map((item, idx) => (
                               <div key={idx} className="order-items-table-row">
-                                <span className="item-name-cell">
-                                  {item.menu_items?.name || 'Item'}
-                                </span>
+                                <span className="item-name-cell">{item.menu_items?.name || 'Item'}</span>
                                 <span className="item-qty-cell">×{item.quantity}</span>
-                                <span className="item-price-cell">
-                                  ₱{Number(item.price_at_time).toFixed(2)}
-                                </span>
+                                <span className="item-price-cell">₱{Number(item.price_at_time).toFixed(2)}</span>
                                 <span className="item-subtotal-cell">
                                   ₱{(Number(item.price_at_time) * item.quantity).toFixed(2)}
                                 </span>
@@ -1176,9 +1247,7 @@ function CustomerDashboard({ user, onLogout }) {
                         </div>
 
                         <div className="detail-block">
-                          <h4 className="detail-block-title">
-                            💳 Payment Information
-                          </h4>
+                          <h4 className="detail-block-title">💳 Payment Information</h4>
                           <div className="detail-info-grid">
                             <div className="detail-info-row">
                               <span className="detail-info-label">Payment Method</span>
@@ -1220,26 +1289,19 @@ function CustomerDashboard({ user, onLogout }) {
 
                         {order.proof_image_url && (
                           <div className="detail-block">
-                            <h4 className="detail-block-title">
-                              📸 Payment Proof
-                            </h4>
+                            <h4 className="detail-block-title">📸 Payment Proof</h4>
                             <div className="proof-thumbnail-container">
                               <div 
                                 className="proof-thumbnail"
                                 onClick={() => setViewingReceipt(order.proof_image_url)}
                               >
-                                <img 
-                                  src={order.proof_image_url} 
-                                  alt="Payment proof thumbnail" 
-                                />
+                                <img src={order.proof_image_url} alt="Payment proof thumbnail" />
                                 <div className="proof-thumbnail-overlay">
                                   <EyeIcon />
                                   <span>View</span>
                                 </div>
                               </div>
-                              <p className="proof-thumbnail-hint">
-                                Click to view full size
-                              </p>
+                              <p className="proof-thumbnail-hint">Click to view full size</p>
                             </div>
                           </div>
                         )}
@@ -1317,7 +1379,9 @@ function CustomerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* PROFILE VIEW */}
+      {/* ============================================
+          PROFILE VIEW
+          ============================================ */}
       {activeTab === 'profile' && (
         <div className="profile-view">
           <div className="profile-container">
@@ -1463,7 +1527,9 @@ function CustomerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* Confirmation Modal */}
+      {/* ============================================
+          CONFIRMATION MODAL
+          ============================================ */}
       <ConfirmModal
         isOpen={confirmModal.isOpen}
         title={confirmModal.title}
@@ -1472,11 +1538,14 @@ function CustomerDashboard({ user, onLogout }) {
         cancelText={confirmModal.cancelText}
         variant={confirmModal.variant}
         iconType={confirmModal.iconType}
+        isLoading={confirmModal.isLoading}
         onConfirm={confirmModal.onConfirm}
         onCancel={closeConfirm}
       />
 
-      {/* Receipt Viewer Modal */}
+      {/* ============================================
+          RECEIPT VIEWER MODAL
+          ============================================ */}
       <ReceiptViewerModal
         isOpen={!!viewingReceipt}
         imageUrl={viewingReceipt}
