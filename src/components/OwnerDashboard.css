@@ -2885,3 +2885,156 @@
     padding: 0.5rem 0.3rem;
   }
 }
+
+/* Order card actions */
+.order-card-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+
+.order-card-actions .btn {
+  flex: 1;
+  min-width: 140px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+}
+
+/* Warning banner */
+.action-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.action-warning .warning-icon {
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.action-warning p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #fbbf24;
+  line-height: 1.5;
+}
+
+.action-warning strong {
+  color: #fcd34d;
+}
+
+.action-info {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.action-info .info-icon {
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.action-info p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #93c5fd;
+}
+
+/* Warning and Info button variants */
+.btn-warning {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  font-family: inherit;
+}
+
+.btn-warning:hover:not(:disabled) {
+  background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(245, 158, 11, 0.35);
+}
+
+.btn-warning:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-info {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  font-family: inherit;
+}
+
+.btn-info:hover:not(:disabled) {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.35);
+}
+
+/* Review modal — all other classes are in earlier responses */
+.order-review-modal { /* ... from earlier CSS ... */ }
+.order-review-header { /* ... */ }
+.order-review-body { /* ... */ }
+.review-column { /* ... */ }
+.review-block { /* ... */ }
+.review-block-title { /* ... */ }
+.review-info-grid { /* ... */ }
+.review-info-row { /* ... */ }
+.review-info-label { /* ... */ }
+.review-info-value { /* ... */ }
+.review-info-value.highlight { /* ... */ }
+.review-info-value.mono { /* ... */ }
+.payment-status-buttons { /* ... */ }
+.payment-status-btn { /* ... */ }
+.review-items-table { /* ... */ }
+.review-items-header,
+.review-items-row,
+.review-items-total { /* ... */ }
+.review-item-name,
+.review-item-qty,
+.review-item-price,
+.review-item-subtotal { /* ... */ }
+.review-proof-container { /* ... */ }
+.review-proof-image { /* ... */ }
+.review-proof-hint { /* ... */ }
+.review-proof-placeholder { /* ... */ }
+.review-actions-block { /* ... */ }
+.review-actions-row { /* ... */ }
+.review-status-message { /* ... */ }
+.payment-method-badge { /* ... */ }
+.payment-status-badge { /* ... */ }
+.order-status-badge { /* ... */ }
