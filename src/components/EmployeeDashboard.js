@@ -4,11 +4,11 @@ import { useOrders } from '../hooks/useSupabase';
 import './EmployeeDashboard.css';
 
 // Import logo
-import logo from '../assets/logo.jpg'; // If in src/assets/
-// OR if in public folder:
-// const logo = '/logo.png';
+import logo from '../assets/logo.jpg';
 
-// Icons
+// ============================================
+// ICONS
+// ============================================
 const BellIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
@@ -82,6 +82,67 @@ const EditIcon = () => (
   </svg>
 );
 
+const WarningIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+    <line x1="12" y1="9" x2="12" y2="13"/>
+    <line x1="12" y1="17" x2="12.01" y2="17"/>
+  </svg>
+);
+
+// ============================================
+// CONFIRMATION MODAL COMPONENT
+// ============================================
+function ConfirmModal({ 
+  isOpen, 
+  title, 
+  message, 
+  confirmText = 'Yes, Confirm', 
+  cancelText = 'No, Cancel',
+  onConfirm, 
+  onCancel,
+  isLoading = false,
+  variant = 'warning'
+}) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="confirm-modal-overlay" onClick={onCancel}>
+      <div 
+        className={`confirm-modal-content confirm-modal-${variant}`} 
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="confirm-modal-icon">
+          <WarningIcon />
+        </div>
+        
+        <h3 className="confirm-modal-title">{title}</h3>
+        <p className="confirm-modal-message">{message}</p>
+        
+        <div className="confirm-modal-actions">
+          <button 
+            className="confirm-btn confirm-btn-no"
+            onClick={onCancel}
+            disabled={isLoading}
+          >
+            {cancelText}
+          </button>
+          <button 
+            className={`confirm-btn confirm-btn-yes confirm-btn-yes-${variant}`}
+            onClick={onConfirm}
+            disabled={isLoading}
+          >
+            {isLoading ? '⏳ Processing...' : confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// MAIN COMPONENT
+// ============================================
 function EmployeeDashboard({ user, onLogout }) {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [notification, setNotification] = useState(null);
@@ -102,8 +163,45 @@ function EmployeeDashboard({ user, onLogout }) {
   const [profileSuccess, setProfileSuccess] = useState('');
   const [profileError, setProfileError] = useState('');
   const [isEditingProfile, setIsEditingProfile] = useState(false);
+
+  // Confirmation modal state
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'Yes, Confirm',
+    cancelText: 'No, Cancel',
+    onConfirm: null,
+    variant: 'warning',
+    isLoading: false
+  });
+
+  const openConfirm = ({ 
+    title, message, confirmText, cancelText, onConfirm, variant = 'warning' 
+  }) => {
+    setConfirmModal({
+      isOpen: true,
+      title,
+      message,
+      confirmText: confirmText || 'Yes, Confirm',
+      cancelText: cancelText || 'No, Cancel',
+      onConfirm,
+      variant,
+      isLoading: false
+    });
+  };
+
+  const closeConfirm = () => {
+    setConfirmModal(prev => ({ ...prev, isOpen: false, onConfirm: null, isLoading: false }));
+  };
   
-  const { orders, updateOrderStatus, updatePaymentStatus, refresh } = useOrders();
+  // ⚠️ IMPORTANT: useOrders returns `refresh`, not `refetch`
+  const { 
+    orders, 
+    updateOrderStatus, 
+    updatePaymentStatus, 
+    refresh: refreshOrders 
+  } = useOrders();
 
   // Real-time subscription for new orders
   useEffect(() => {
@@ -111,135 +209,217 @@ function EmployeeDashboard({ user, onLogout }) {
       .channel('orders-channel')
       .on(
         'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'orders'
-        },
+        { event: 'INSERT', schema: 'public', table: 'orders' },
         (payload) => {
           setNotificationType('success');
           setNotification(`📦 New Order Received from ${payload.new.users?.name || 'Customer'}`);
-          refresh();
+          refreshOrders();
           setTimeout(() => setNotification(null), 5000);
         }
       )
       .on(
         'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'orders',
-          filter: 'status=eq.pending'
-        },
-        () => {
-          refresh();
-        }
+        { event: 'UPDATE', schema: 'public', table: 'orders', filter: 'status=eq.pending' },
+        () => { refreshOrders(); }
       )
       .subscribe();
 
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [refresh]);
+    return () => { subscription.unsubscribe(); };
+  }, [refreshOrders]);
 
-  // Profile Update Functions
-  const handleProfileUpdate = async (e) => {
-    e.preventDefault();
-    setProfileLoading(true);
-    setProfileError('');
-    setProfileSuccess('');
-
-    try {
-      const { error: updateError } = await supabase
-        .from('users')
-        .update({ name: profile.name })
-        .eq('id', user.id);
-
-      if (updateError) throw updateError;
-
-      setProfileSuccess('✅ Profile updated successfully!');
-      setIsEditingProfile(false);
-      
-      user.name = profile.name;
-      
-      setTimeout(() => setProfileSuccess(''), 3000);
-    } catch (err) {
-      console.error('Profile update error:', err);
-      setProfileError(err.message || 'Failed to update profile');
-    } finally {
-      setProfileLoading(false);
-    }
+  // ============================================
+  // LOGOUT — WITH CONFIRMATION
+  // ============================================
+  const handleLogout = () => {
+    openConfirm({
+      title: 'Log Out?',
+      message: 'Are you sure you want to log out of your account?',
+      confirmText: 'Yes, Log Out',
+      cancelText: 'No, Stay',
+      variant: 'warning',
+      onConfirm: () => {
+        closeConfirm();
+        onLogout();
+      }
+    });
   };
 
-  const handlePasswordUpdate = async (e) => {
+  // ============================================
+  // PROFILE HANDLERS — WITH CONFIRMATION
+  // ============================================
+  const handleProfileUpdate = (e) => {
     e.preventDefault();
-    setProfileLoading(true);
+    
+    if (profile.name === user?.name) {
+      alert('No changes to save.');
+      return;
+    }
+
+    openConfirm({
+      title: 'Update Profile?',
+      message: `Are you sure you want to change your name to "${profile.name}"?`,
+      confirmText: 'Yes, Update',
+      cancelText: 'No, Cancel',
+      variant: 'warning',
+      onConfirm: async () => {
+        closeConfirm();
+        setProfileLoading(true);
+        setProfileError('');
+        setProfileSuccess('');
+
+        try {
+          const { error: updateError } = await supabase
+            .from('users')
+            .update({ name: profile.name })
+            .eq('id', user.id);
+
+          if (updateError) throw updateError;
+
+          setProfileSuccess('✅ Profile updated successfully!');
+          setIsEditingProfile(false);
+          user.name = profile.name;
+          
+          setTimeout(() => setProfileSuccess(''), 3000);
+        } catch (err) {
+          setProfileError(err.message || 'Failed to update profile');
+        } finally {
+          setProfileLoading(false);
+        }
+      }
+    });
+  };
+
+  const handlePasswordUpdate = (e) => {
+    e.preventDefault();
     setProfileError('');
     setProfileSuccess('');
 
     if (passwordData.newPassword !== passwordData.confirmPassword) {
       setProfileError('New passwords do not match');
-      setProfileLoading(false);
       return;
     }
 
     if (passwordData.newPassword.length < 6) {
       setProfileError('New password must be at least 6 characters');
-      setProfileLoading(false);
       return;
     }
 
-    try {
-      const { error: passwordError } = await supabase.auth.updateUser({
-        password: passwordData.newPassword
-      });
+    openConfirm({
+      title: 'Change Password?',
+      message: 'Are you sure you want to change your account password? You will need to use the new password on your next login.',
+      confirmText: 'Yes, Change Password',
+      cancelText: 'No, Cancel',
+      variant: 'warning',
+      onConfirm: async () => {
+        closeConfirm();
+        setProfileLoading(true);
 
-      if (passwordError) throw passwordError;
+        try {
+          const { error: passwordError } = await supabase.auth.updateUser({
+            password: passwordData.newPassword
+          });
 
-      setProfileSuccess('✅ Password updated successfully!');
-      setPasswordData({
-        currentPassword: '',
-        newPassword: '',
-        confirmPassword: '',
-      });
-      
-      setTimeout(() => setProfileSuccess(''), 3000);
-    } catch (err) {
-      console.error('Password update error:', err);
-      setProfileError(err.message || 'Failed to update password');
-    } finally {
-      setProfileLoading(false);
-    }
-  };
+          if (passwordError) throw passwordError;
 
-  const handleUpdatePaymentStatus = async (orderId, status) => {
-    try {
-      await updatePaymentStatus(orderId, status);
-      if (selectedOrder && selectedOrder.id === orderId) {
-        setSelectedOrder({ ...selectedOrder, payment_status: status });
+          setProfileSuccess('✅ Password updated successfully!');
+          setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+          
+          setTimeout(() => setProfileSuccess(''), 3000);
+        } catch (err) {
+          setProfileError(err.message || 'Failed to update password');
+        } finally {
+          setProfileLoading(false);
+        }
       }
-      refresh();
-      
-      setNotificationType('info');
-      setNotification(`💳 Payment status updated to: ${status}`);
-      setTimeout(() => setNotification(null), 3000);
-    } catch (error) {
-      alert('Failed to update payment status');
-    }
+    });
   };
 
-  const handleUpdateOrderStatus = async (orderId, newStatus) => {
-    try {
-      await updateOrderStatus(orderId, newStatus);
-      setSelectedOrder(null);
-      refresh();
-      
-      setNotificationType('success');
-      setNotification(`✅ Order status updated to: ${newStatus}`);
-      setTimeout(() => setNotification(null), 3000);
-    } catch (error) {
-      alert('Failed to update order status');
-    }
+  // ============================================
+  // PAYMENT STATUS — WITH CONFIRMATION
+  // ============================================
+  const handleUpdatePaymentStatus = (orderId, status) => {
+    const statusLabels = {
+      valid: 'Verified',
+      underpayment: 'Underpaid',
+      overpayment: 'Overpaid'
+    };
+    const label = statusLabels[status] || status;
+
+    openConfirm({
+      title: `Mark Payment as ${label}?`,
+      message: `Are you sure you want to mark this payment as "${label}"? The customer will see this update.`,
+      confirmText: `Yes, Mark as ${label}`,
+      cancelText: 'No, Cancel',
+      variant: status === 'valid' ? 'warning' : 'danger',
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isLoading: true }));
+        
+        try {
+          await updatePaymentStatus(orderId, status);
+          
+          if (selectedOrder && selectedOrder.id === orderId) {
+            setSelectedOrder({ ...selectedOrder, payment_status: status });
+          }
+          refreshOrders();
+          
+          setNotificationType('info');
+          setNotification(`💳 Payment status updated to: ${label}`);
+          setTimeout(() => setNotification(null), 3000);
+          
+          closeConfirm();
+        } catch (error) {
+          setConfirmModal(prev => ({ ...prev, isLoading: false }));
+          alert('❌ Failed to update payment status: ' + error.message);
+        }
+      }
+    });
+  };
+
+  // ============================================
+  // ORDER STATUS — WITH CONFIRMATION
+  // ============================================
+  const handleUpdateOrderStatus = (orderId, newStatus) => {
+    const statusLabels = {
+      preparing: 'Preparing',
+      processing: 'Processing',
+      completed: 'Completed',
+      declined: 'Declined'
+    };
+    const label = statusLabels[newStatus] || newStatus;
+    const isDestructive = newStatus === 'declined';
+
+    openConfirm({
+      title: `${label} Order?`,
+      message: isDestructive
+        ? `Are you sure you want to decline this order? The customer will be notified and cannot recover the order.`
+        : `Are you sure you want to mark this order as "${label}"?`,
+      confirmText: `Yes, Mark as ${label}`,
+      cancelText: 'No, Cancel',
+      variant: isDestructive ? 'danger' : 'warning',
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isLoading: true }));
+        
+        try {
+          await updateOrderStatus(orderId, newStatus);
+          
+          if (selectedOrder && selectedOrder.id === orderId) {
+            setSelectedOrder({ ...selectedOrder, status: newStatus });
+          }
+          refreshOrders();
+          
+          setNotificationType('success');
+          setNotification(`✅ Order status updated to: ${label}`);
+          setTimeout(() => setNotification(null), 3000);
+          
+          closeConfirm();
+          // Close the modal after successful update
+          setTimeout(() => setSelectedOrder(null), 800);
+        } catch (error) {
+          setConfirmModal(prev => ({ ...prev, isLoading: false }));
+          alert('❌ Failed to update order status: ' + error.message);
+        }
+      }
+    });
   };
 
   const getOrderCount = (status) => {
@@ -295,11 +475,7 @@ function EmployeeDashboard({ user, onLogout }) {
       <header className="dashboard-header">
         <div className="header-left">
           <div className="brand-logo">
-            <img 
-              src={logo} 
-              alt="1of1 Coffee" 
-              className="brand-logo-image"
-            />
+            <img src={logo} alt="1of1 Coffee" className="brand-logo-image" />
             <div className="brand-text">
               <h1>1of1 Coffee</h1>
               <span className="brand-subtitle">Employee Portal</span>
@@ -311,7 +487,7 @@ function EmployeeDashboard({ user, onLogout }) {
             <span className="user-avatar">👤</span>
             <span className="user-name">{user?.name || 'Staff'}</span>
           </div>
-          <button className="logout-btn" onClick={onLogout}>
+          <button className="logout-btn" onClick={handleLogout}>
             <LogOutIcon /> Logout
           </button>
         </div>
@@ -382,9 +558,7 @@ function EmployeeDashboard({ user, onLogout }) {
           <div className="kanban-board">
             <div className="kanban-column">
               <div className="column-header pending">
-                <span className="column-title">
-                  <ClockIcon /> Pending
-                </span>
+                <span className="column-title"><ClockIcon /> Pending</span>
                 <span className="order-count">{getOrderCount('pending')}</span>
               </div>
               <div className="column-content">
@@ -401,9 +575,7 @@ function EmployeeDashboard({ user, onLogout }) {
 
             <div className="kanban-column">
               <div className="column-header preparing">
-                <span className="column-title">
-                  <PackageIcon /> Preparing
-                </span>
+                <span className="column-title"><PackageIcon /> Preparing</span>
                 <span className="order-count">{getOrderCount('preparing')}</span>
               </div>
               <div className="column-content">
@@ -420,9 +592,7 @@ function EmployeeDashboard({ user, onLogout }) {
 
             <div className="kanban-column">
               <div className="column-header completed">
-                <span className="column-title">
-                  <CheckIcon /> Completed
-                </span>
+                <span className="column-title"><CheckIcon /> Completed</span>
                 <span className="order-count">{getOrderCount('completed')}</span>
               </div>
               <div className="column-content">
@@ -439,9 +609,7 @@ function EmployeeDashboard({ user, onLogout }) {
 
             <div className="kanban-column">
               <div className="column-header declined">
-                <span className="column-title">
-                  <XIcon /> Declined
-                </span>
+                <span className="column-title"><XIcon /> Declined</span>
                 <span className="order-count">{getOrderCount('declined')}</span>
               </div>
               <div className="column-content">
@@ -601,11 +769,7 @@ function EmployeeDashboard({ user, onLogout }) {
                             </button>
                             <button 
                               className="btn btn-danger"
-                              onClick={() => {
-                                if (window.confirm("Are you sure you want to decline this order?")) {
-                                  handleUpdateOrderStatus(selectedOrder.id, 'declined');
-                                }
-                              }}
+                              onClick={() => handleUpdateOrderStatus(selectedOrder.id, 'declined')}
                             >
                               ❌ Decline Order
                             </button>
@@ -670,18 +834,11 @@ function EmployeeDashboard({ user, onLogout }) {
             )}
 
             <div className="profile-grid">
-              {/* Profile Information */}
               <div className="profile-card">
                 <div className="profile-card-header">
-                  <h3>
-                    <span className="card-icon">📝</span>
-                    Profile Information
-                  </h3>
+                  <h3><span className="card-icon">📝</span> Profile Information</h3>
                   {!isEditingProfile && (
-                    <button 
-                      className="edit-profile-btn"
-                      onClick={() => setIsEditingProfile(true)}
-                    >
+                    <button className="edit-profile-btn" onClick={() => setIsEditingProfile(true)}>
                       <EditIcon /> Edit
                     </button>
                   )}
@@ -691,49 +848,25 @@ function EmployeeDashboard({ user, onLogout }) {
                   <form onSubmit={handleProfileUpdate} className="profile-form">
                     <div className="form-group">
                       <label>Full Name</label>
-                      <input
-                        type="text"
-                        value={profile.name}
+                      <input type="text" value={profile.name}
                         onChange={(e) => setProfile({...profile, name: e.target.value})}
-                        placeholder="Enter your full name"
-                        required
-                      />
+                        placeholder="Enter your full name" required />
                     </div>
                     <div className="form-group">
                       <label>Email</label>
-                      <input
-                        type="email"
-                        value={profile.email}
-                        disabled
-                        className="disabled-input"
-                      />
+                      <input type="email" value={profile.email} disabled className="disabled-input" />
                       <span className="input-hint">Email cannot be changed</span>
                     </div>
                     <div className="form-group">
                       <label>Role</label>
-                      <input
-                        type="text"
-                        value="Employee"
-                        disabled
-                        className="disabled-input"
-                      />
+                      <input type="text" value="Employee" disabled className="disabled-input" />
                     </div>
                     <div className="profile-actions">
-                      <button 
-                        type="button"
-                        className="btn-cancel"
-                        onClick={() => {
-                          setIsEditingProfile(false);
-                          setProfile({...profile, name: user?.name || ''});
-                        }}
-                      >
-                        Cancel
-                      </button>
-                      <button 
-                        type="submit" 
-                        className="btn-save"
-                        disabled={profileLoading}
-                      >
+                      <button type="button" className="btn-cancel" onClick={() => {
+                        setIsEditingProfile(false);
+                        setProfile({...profile, name: user?.name || ''});
+                      }}>Cancel</button>
+                      <button type="submit" className="btn-save" disabled={profileLoading}>
                         {profileLoading ? 'Saving...' : <><SaveIcon /> Save Changes</>}
                       </button>
                     </div>
@@ -756,9 +889,7 @@ function EmployeeDashboard({ user, onLogout }) {
                       <span className="field-label">Member Since</span>
                       <span className="field-value">
                         {user?.created_at ? new Date(user.created_at).toLocaleDateString('en-PH', {
-                          year: 'numeric',
-                          month: 'long',
-                          day: 'numeric'
+                          year: 'numeric', month: 'long', day: 'numeric'
                         }) : 'N/A'}
                       </span>
                     </div>
@@ -766,53 +897,31 @@ function EmployeeDashboard({ user, onLogout }) {
                 )}
               </div>
 
-              {/* Change Password */}
               <div className="profile-card">
                 <div className="profile-card-header">
-                  <h3>
-                    <span className="card-icon">🔒</span>
-                    Change Password
-                  </h3>
+                  <h3><span className="card-icon">🔒</span> Change Password</h3>
                 </div>
 
                 <form onSubmit={handlePasswordUpdate} className="profile-form">
                   <div className="form-group">
                     <label>Current Password</label>
-                    <input
-                      type="password"
-                      value={passwordData.currentPassword}
+                    <input type="password" value={passwordData.currentPassword}
                       onChange={(e) => setPasswordData({...passwordData, currentPassword: e.target.value})}
-                      placeholder="Enter current password"
-                      required
-                    />
+                      placeholder="Enter current password" required />
                   </div>
                   <div className="form-group">
                     <label>New Password</label>
-                    <input
-                      type="password"
-                      value={passwordData.newPassword}
+                    <input type="password" value={passwordData.newPassword}
                       onChange={(e) => setPasswordData({...passwordData, newPassword: e.target.value})}
-                      placeholder="Min 6 characters"
-                      required
-                      minLength={6}
-                    />
+                      placeholder="Min 6 characters" required minLength={6} />
                   </div>
                   <div className="form-group">
                     <label>Confirm New Password</label>
-                    <input
-                      type="password"
-                      value={passwordData.confirmPassword}
+                    <input type="password" value={passwordData.confirmPassword}
                       onChange={(e) => setPasswordData({...passwordData, confirmPassword: e.target.value})}
-                      placeholder="Confirm new password"
-                      required
-                      minLength={6}
-                    />
+                      placeholder="Confirm new password" required minLength={6} />
                   </div>
-                  <button 
-                    type="submit" 
-                    className="btn-save-password"
-                    disabled={profileLoading}
-                  >
+                  <button type="submit" className="btn-save-password" disabled={profileLoading}>
                     {profileLoading ? 'Updating...' : 'Update Password'}
                   </button>
                 </form>
@@ -821,6 +930,19 @@ function EmployeeDashboard({ user, onLogout }) {
           </div>
         </div>
       )}
+
+      {/* Confirmation Modal */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        confirmText={confirmModal.confirmText}
+        cancelText={confirmModal.cancelText}
+        variant={confirmModal.variant}
+        isLoading={confirmModal.isLoading}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={closeConfirm}
+      />
     </div>
   );
 }
