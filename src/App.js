@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { supabase } from './supabaseClient';
 import './App.css';
@@ -13,6 +13,20 @@ function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // 🔄 NEW: Flag to suppress auto-login during signup flow
+  const isSigningUpRef = useRef(false);
+
+  // 🔄 NEW: Expose a way for Login.js to set/clear the flag
+  useEffect(() => {
+    window.__setSigningUp = (val) => {
+      isSigningUpRef.current = val;
+      console.log('🔒 isSigningUp flag set to:', val);
+    };
+    return () => {
+      delete window.__setSigningUp;
+    };
+  }, []);
+
   useEffect(() => {
     // Check current session
     const checkSession = async () => {
@@ -20,7 +34,6 @@ function App() {
         const { data: { session }, error } = await supabase.auth.getSession();
         
         if (session && session.user) {
-          // Get user profile from database
           const { data: userData, error: userError } = await supabase
             .from('users')
             .select('*')
@@ -48,9 +61,14 @@ function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         console.log('Auth state changed:', event, session);
-        
+
+        // 🔄 NEW: Ignore SIGNED_IN while signup is in progress
+        if (isSigningUpRef.current && event === 'SIGNED_IN') {
+          console.log('🚫 Ignoring auto SIGNED_IN during signup');
+          return;
+        }
+
         if (session && session.user) {
-          // Get user profile
           const { data: userData, error } = await supabase
             .from('users')
             .select('*')
@@ -65,7 +83,6 @@ function App() {
             localStorage.setItem('currentUser', JSON.stringify(userData));
           }
         } else {
-          // User signed out
           setIsAuthenticated(false);
           setUserRole(null);
           setCurrentUser(null);
