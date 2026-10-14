@@ -35,7 +35,7 @@ const SuccessModalIcon = () => (
 );
 
 // ============================================
-// SUCCESS MODAL
+// SUCCESS MODAL (shown after signup)
 // ============================================
 function SuccessModal({ isOpen, email, onProceed }) {
   if (!isOpen) return null;
@@ -71,6 +71,21 @@ function SuccessModal({ isOpen, email, onProceed }) {
   );
 }
 
+// ============================================
+// ROLE LABEL HELPER
+// ============================================
+const getRoleLabel = (roleKey) => {
+  switch (roleKey) {
+    case 'customer': return 'Customer';
+    case 'employee': return 'Employee';
+    case 'owner': return 'Owner';
+    default: return roleKey;
+  }
+};
+
+// ============================================
+// MAIN COMPONENT
+// ============================================
 const Login = ({ onLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -89,6 +104,7 @@ const Login = ({ onLogin }) => {
 
   // ============================================
   // LOAD SAVED CREDENTIALS ON MOUNT
+  // + Clear any stale session on login page load
   // ============================================
   useEffect(() => {
     const savedRemember = localStorage.getItem('rememberMe') === 'true';
@@ -102,6 +118,15 @@ const Login = ({ onLogin }) => {
       setPassword(savedPassword);
       setRole(savedRole);
     }
+
+    // Clear any lingering Supabase session so a previous failed login
+    // doesn't auto-redirect via App.js's auth listener
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        console.log('🧹 Clearing stale session on login page load');
+        supabase.auth.signOut();
+      }
+    });
   }, []);
 
   // ============================================
@@ -121,110 +146,112 @@ const Login = ({ onLogin }) => {
     localStorage.removeItem('rememberedRole');
   };
 
+  // ============================================
+  // SET AUTH-IN-PROGRESS FLAG
+  // (stops App.js from reacting to SIGNED_IN
+  //  before we finish validating the role)
+  // ============================================
+  const setAuthInProgress = (val) => {
+    if (typeof window.__setAuthInProgress === 'function') {
+      window.__setAuthInProgress(val);
+    } else if (typeof window.__setSigningUp === 'function') {
+      // Backward-compat alias
+      window.__setSigningUp(val);
+    }
+  };
+
+  // ============================================
+  // FORM SUBMIT
+  // ============================================
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setSuccessMessage('');
     setLoading(true);
 
+    // 🔒 Block App.js from reacting to auth events during this flow
+    setAuthInProgress(true);
+
     try {
       if (isSignUp) {
         // ============================================
-        // SIGN UP FLOW — suppress auto-login
+        // SIGN UP FLOW
         // ============================================
-
-        // Tell App.js to ignore the auto SIGNED_IN event that fires from signUp()
-        if (typeof window.__setSigningUp === 'function') {
-          window.__setSigningUp(true);
-        }
-
         const signUpRole = 'customer';
 
-        try {
-          const { data: authData, error: signUpError } = await supabase.auth.signUp({
-            email,
-            password,
-            options: {
-              data: {
-                name: name || email.split('@')[0],
-                role: signUpRole
-              }
+        const { data: authData, error: signUpError } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              name: name || email.split('@')[0],
+              role: signUpRole
             }
-          });
-
-          if (signUpError) {
-            if (signUpError.message.includes('User already registered')) {
-              throw new Error('This email is already registered. Please sign in instead.');
-            }
-            throw signUpError;
           }
+        });
 
-          if (!authData.user) {
-            throw new Error('Sign up failed. Please try again.');
+        if (signUpError) {
+          if (signUpError.message.includes('User already registered')) {
+            throw new Error('This email is already registered. Please sign in instead.');
           }
+          throw signUpError;
+        }
 
-          console.log('✅ Auth user created:', authData.user.id);
+        if (!authData.user) {
+          throw new Error('Sign up failed. Please try again.');
+        }
 
-          // Wait a moment for the DB trigger to create the profile
-          await new Promise(resolve => setTimeout(resolve, 800));
+        console.log('✅ Auth user created:', authData.user.id);
 
-          // Fallback: create profile manually if trigger didn't fire
-          let { data: existingUser } = await supabase
+        // Wait for the DB trigger to create the profile row
+        await new Promise(resolve => setTimeout(resolve, 800));
+
+        // Fallback: create profile manually if trigger didn't fire
+        let { data: existingUser } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', authData.user.id)
+          .maybeSingle();
+
+        if (!existingUser) {
+          console.log('Creating user profile manually...');
+          const { data: newUser, error: insertError } = await supabase
             .from('users')
-            .select('*')
-            .eq('id', authData.user.id)
+            .insert([{
+              id: authData.user.id,
+              email: authData.user.email,
+              name: name || authData.user.email.split('@')[0],
+              role: signUpRole
+            }])
+            .select()
             .maybeSingle();
 
-          if (!existingUser) {
-            console.log('Creating user profile manually...');
-
-            const { data: newUser, error: insertError } = await supabase
-              .from('users')
-              .insert([
-                {
-                  id: authData.user.id,
-                  email: authData.user.email,
-                  name: name || authData.user.email.split('@')[0],
-                  role: signUpRole
-                }
-              ])
-              .select()
-              .maybeSingle();
-
-            if (insertError) {
-              if (insertError.code === '23505') {
-                console.log('Profile already exists, continuing...');
-              } else {
-                console.error('Profile insert error:', insertError);
-              }
+          if (insertError) {
+            if (insertError.code === '23505') {
+              console.log('Profile already exists, continuing...');
+            } else {
+              console.error('Profile insert error:', insertError);
             }
-
-            existingUser = newUser;
           }
-
-          // Sign out the auto-created session so user must log in manually
-          console.log('🚪 Signing out the auto-created session...');
-          await supabase.auth.signOut();
-
-          // Show success modal AFTER signOut completes
-          setRegisteredEmail(email);
-          setShowSignupSuccess(true);
-
-          // Reset form fields (keep email so it's pre-filled for login)
-          setName('');
-          setPassword('');
-          setShowPassword(false);
-
-        } finally {
-          // Always clear the flag
-          if (typeof window.__setSigningUp === 'function') {
-            window.__setSigningUp(false);
-          }
+          existingUser = newUser;
         }
+
+        // Sign out the auto-created session (Supabase signs in on signUp)
+        console.log('🚪 Signing out the auto-created session...');
+        await supabase.auth.signOut();
+
+        // Show success modal
+        setRegisteredEmail(email);
+        setShowSignupSuccess(true);
+
+        // Reset form (keep email so it's pre-filled for login)
+        setName('');
+        setPassword('');
+        setShowPassword(false);
 
       } else {
         // ============================================
-        // SIGN IN FLOW
+        // SIGN IN FLOW — validate role BEFORE accepting session
         // ============================================
         const { data: authData, error: signInError } = await supabase.auth.signInWithPassword({
           email,
@@ -233,43 +260,68 @@ const Login = ({ onLogin }) => {
 
         if (signInError) throw signInError;
 
-        if (authData.user) {
-          const { data: userData, error: userError } = await supabase
-            .from('users')
-            .select('*')
-            .eq('id', authData.user.id)
-            .maybeSingle();
-
-          if (userError) {
-            console.error('Profile fetch error:', userError);
-            throw new Error('Could not retrieve user profile.');
-          }
-
-          if (!userData) {
-            throw new Error('User profile not found. Please contact support.');
-          }
-
-          if (userData.role !== role) {
-            throw new Error(`This account is registered as ${userData.role}. Please select the correct role.`);
-          }
-
-          if (rememberMe) {
-            saveCredentials();
-          } else {
-            clearCredentials();
-          }
-
-          onLogin(role, userData);
+        if (!authData.user) {
+          throw new Error('Sign in failed. Please try again.');
         }
+
+        // Fetch the user profile from the DB
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', authData.user.id)
+          .maybeSingle();
+
+        if (userError) {
+          console.error('Profile fetch error:', userError);
+          await supabase.auth.signOut();
+          throw new Error('Could not retrieve user profile.');
+        }
+
+        if (!userData) {
+          await supabase.auth.signOut();
+          throw new Error('User profile not found. Please contact support.');
+        }
+
+        // ✅ ROLE VALIDATION — the important part
+        if (userData.role !== role) {
+          // Sign out immediately so no stale session sticks around
+          await supabase.auth.signOut();
+
+          const selectedLabel = getRoleLabel(role);
+          const actualLabel = getRoleLabel(userData.role);
+
+          throw new Error(
+            `This account is registered as "${actualLabel}", but you selected "${selectedLabel}". Please select the correct role and try again.`
+          );
+        }
+
+        // ✅ Role matches — persist credentials and proceed
+        if (rememberMe) {
+          saveCredentials();
+        } else {
+          clearCredentials();
+        }
+
+        // Release the flag BEFORE navigating so App.js can resume
+        setAuthInProgress(false);
+
+        // Trigger the parent's login handler — this navigates
+        onLogin(role, userData);
+        return; // skip the finally flag-release below
       }
     } catch (err) {
       console.error('Authentication error:', err);
       setError(err.message || 'An error occurred during authentication');
     } finally {
       setLoading(false);
+      // Always release the flag in case of error
+      setAuthInProgress(false);
     }
   };
 
+  // ============================================
+  // TOGGLE SIGN IN / SIGN UP MODE
+  // ============================================
   const handleToggleMode = () => {
     setIsSignUp(!isSignUp);
     setError('');
@@ -280,16 +332,21 @@ const Login = ({ onLogin }) => {
     }
   };
 
-  // Handle "Proceed to Log In" from success modal
+  // ============================================
+  // "PROCEED TO LOG IN" FROM SUCCESS MODAL
+  // ============================================
   const handleProceedToLogin = () => {
     setShowSignupSuccess(false);
     setIsSignUp(false);
     setRole('customer');
     setError('');
     setSuccessMessage('');
-    // Email stays filled so user just needs to type password
+    // Email stays filled so the user only types their password
   };
 
+  // ============================================
+  // RENDER
+  // ============================================
   return (
     <div className="login-container">
       {/* Decorative coffee beans background */}
@@ -306,12 +363,12 @@ const Login = ({ onLogin }) => {
 
       <div className="login-wrapper">
         <div className="login-card">
-          {/* Logo/Brand Section */}
+          {/* Logo / Brand Section */}
           <div className="brand-section">
             <div className="brand-logo-container">
-              <img 
+              <img
                 src={logo}
-                alt="1of1 Coffee" 
+                alt="1of1 Coffee"
                 className="brand-logo-image"
               />
             </div>
@@ -324,20 +381,21 @@ const Login = ({ onLogin }) => {
             <div className="auth-header">
               <h2>{isSignUp ? 'Create Account' : 'Welcome Back'}</h2>
               <p className="auth-subtitle">
-                {isSignUp 
-                  ? 'Join our coffee community' 
+                {isSignUp
+                  ? 'Join our coffee community'
                   : 'Sign in to continue your coffee journey'}
               </p>
             </div>
-            
+
             {successMessage && (
               <div className="success-message">
                 <span className="success-icon">✅</span>
                 {successMessage}
               </div>
             )}
-            
+
             <form onSubmit={handleSubmit} className="login-form">
+              {/* Email */}
               <div className="form-group">
                 <label>Email Address</label>
                 <div className="input-wrapper">
@@ -352,6 +410,7 @@ const Login = ({ onLogin }) => {
                 </div>
               </div>
 
+              {/* Password */}
               <div className="form-group">
                 <label>Password</label>
                 <div className="input-wrapper password-wrapper">
@@ -400,7 +459,7 @@ const Login = ({ onLogin }) => {
                 </div>
               )}
 
-              {/* Full name — only on Sign Up */}
+              {/* Full Name — only on Sign Up */}
               {isSignUp && (
                 <div className="form-group">
                   <label>Full Name</label>
@@ -422,8 +481,8 @@ const Login = ({ onLogin }) => {
                 <div className="form-group">
                   <label>I am a...</label>
                   <div className="role-select-wrapper">
-                    <select 
-                      value={role} 
+                    <select
+                      value={role}
                       onChange={(e) => setRole(e.target.value)}
                       className="role-select"
                     >
@@ -440,12 +499,13 @@ const Login = ({ onLogin }) => {
                 <div className="signup-note">
                   <span className="note-icon">ℹ️</span>
                   <p>
-                    By creating an account, you'll be registered as a <strong>Customer</strong>. 
+                    By creating an account, you'll be registered as a <strong>Customer</strong>.
                     Employee and Owner accounts are managed by the system administrator.
                   </p>
                 </div>
               )}
 
+              {/* Error message */}
               {error && (
                 <div className="error-message">
                   <span className="error-icon">⚠️</span>
@@ -453,8 +513,9 @@ const Login = ({ onLogin }) => {
                 </div>
               )}
 
-              <button 
-                type="submit" 
+              {/* Submit button */}
+              <button
+                type="submit"
                 className="login-btn"
                 disabled={loading}
               >
@@ -472,7 +533,7 @@ const Login = ({ onLogin }) => {
             </form>
 
             <div className="auth-footer">
-              <button 
+              <button
                 className="toggle-auth-btn"
                 onClick={handleToggleMode}
               >
@@ -515,7 +576,7 @@ const Login = ({ onLogin }) => {
         </div>
       </div>
 
-      {/* Success Modal */}
+      {/* Success Modal (after signup) */}
       <SuccessModal
         isOpen={showSignupSuccess}
         email={registeredEmail}
