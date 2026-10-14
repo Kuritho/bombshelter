@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import './Login.css';
 
-// Import logo
 import logo from '../assets/logo.jpg';
 
 // ============================================
@@ -28,6 +27,50 @@ const CheckIcon = () => (
   </svg>
 );
 
+const SuccessModalIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+    <polyline points="22 4 12 14.01 9 11.01"/>
+  </svg>
+);
+
+// ============================================
+// SUCCESS MODAL
+// ============================================
+function SuccessModal({ isOpen, email, onProceed }) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="success-modal-overlay" onClick={onProceed}>
+      <div className="success-modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="success-modal-icon">
+          <SuccessModalIcon />
+        </div>
+
+        <h3 className="success-modal-title">Account Registered!</h3>
+
+        <p className="success-modal-message">
+          Your account has been created successfully.
+          {email && (
+            <>
+              <br />
+              <span className="success-modal-email">{email}</span>
+            </>
+          )}
+          <br />
+          Please sign in to continue.
+        </p>
+
+        <div className="success-modal-actions">
+          <button className="success-modal-btn" onClick={onProceed}>
+            Proceed to Log In
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const Login = ({ onLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -38,7 +81,11 @@ const Login = ({ onLogin }) => {
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false); // ← NEW
+  const [rememberMe, setRememberMe] = useState(false);
+
+  // Success modal state
+  const [showSignupSuccess, setShowSignupSuccess] = useState(false);
+  const [registeredEmail, setRegisteredEmail] = useState('');
 
   // ============================================
   // LOAD SAVED CREDENTIALS ON MOUNT
@@ -54,8 +101,6 @@ const Login = ({ onLogin }) => {
       setEmail(savedEmail);
       setPassword(savedPassword);
       setRole(savedRole);
-      // Only show password if it was saved (auto-fill keeps it hidden as dots)
-      // Leave showPassword false for security — user can click eye to reveal
     }
   }, []);
 
@@ -85,107 +130,98 @@ const Login = ({ onLogin }) => {
     try {
       if (isSignUp) {
         // ============================================
-        // SIGN UP FLOW
+        // SIGN UP FLOW — suppress auto-login
         // ============================================
+
+        // Tell App.js to ignore the auto SIGNED_IN event that fires from signUp()
+        if (typeof window.__setSigningUp === 'function') {
+          window.__setSigningUp(true);
+        }
+
         const signUpRole = 'customer';
 
-        const { data: authData, error: signUpError } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: {
-              name: name || email.split('@')[0],
-              role: signUpRole
-            }
-          }
-        });
-
-        if (signUpError) {
-          if (signUpError.message.includes('User already registered')) {
-            throw new Error('This email is already registered. Please sign in instead.');
-          }
-          throw signUpError;
-        }
-
-        if (!authData.user) {
-          throw new Error('Sign up failed. Please try again.');
-        }
-
-        console.log('✅ Auth user created:', authData.user.id);
-
-        await new Promise(resolve => setTimeout(resolve, 800));
-
-        let { data: existingUser } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', authData.user.id)
-          .maybeSingle();
-
-        if (!existingUser) {
-          console.log('Creating user profile manually...');
-
-          const { data: newUser, error: insertError } = await supabase
-            .from('users')
-            .insert([
-              {
-                id: authData.user.id,
-                email: authData.user.email,
-                name: name || authData.user.email.split('@')[0],
+        try {
+          const { data: authData, error: signUpError } = await supabase.auth.signUp({
+            email,
+            password,
+            options: {
+              data: {
+                name: name || email.split('@')[0],
                 role: signUpRole
               }
-            ])
-            .select()
-            .maybeSingle();
-
-          if (insertError) {
-            if (insertError.code === '23505') {
-              console.log('Profile already exists, continuing...');
-            } else {
-              console.error('Profile insert error:', insertError);
             }
+          });
+
+          if (signUpError) {
+            if (signUpError.message.includes('User already registered')) {
+              throw new Error('This email is already registered. Please sign in instead.');
+            }
+            throw signUpError;
           }
 
-          existingUser = newUser;
-        }
+          if (!authData.user) {
+            throw new Error('Sign up failed. Please try again.');
+          }
 
-        console.log('🔐 Auto-signing in new user...');
+          console.log('✅ Auth user created:', authData.user.id);
 
-        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-          email,
-          password
-        });
+          // Wait a moment for the DB trigger to create the profile
+          await new Promise(resolve => setTimeout(resolve, 800));
 
-        if (signInError) {
-          console.error('Auto-sign-in failed:', signInError);
-          setSuccessMessage('✅ Account created! Please sign in with your new credentials.');
-          setIsSignUp(false);
-          setPassword('');
-          setShowPassword(false);
-          setLoading(false);
-          return;
-        }
-
-        if (signInData.user) {
-          const { data: userData } = await supabase
+          // Fallback: create profile manually if trigger didn't fire
+          let { data: existingUser } = await supabase
             .from('users')
             .select('*')
-            .eq('id', signInData.user.id)
+            .eq('id', authData.user.id)
             .maybeSingle();
 
-          if (!userData) {
-            throw new Error('Profile not found. Please try signing in.');
+          if (!existingUser) {
+            console.log('Creating user profile manually...');
+
+            const { data: newUser, error: insertError } = await supabase
+              .from('users')
+              .insert([
+                {
+                  id: authData.user.id,
+                  email: authData.user.email,
+                  name: name || authData.user.email.split('@')[0],
+                  role: signUpRole
+                }
+              ])
+              .select()
+              .maybeSingle();
+
+            if (insertError) {
+              if (insertError.code === '23505') {
+                console.log('Profile already exists, continuing...');
+              } else {
+                console.error('Profile insert error:', insertError);
+              }
+            }
+
+            existingUser = newUser;
           }
 
-          // Save credentials if remember me is checked
-          if (rememberMe) {
-            saveCredentials();
-          } else {
-            clearCredentials();
-          }
+          // Sign out the auto-created session so user must log in manually
+          console.log('🚪 Signing out the auto-created session...');
+          await supabase.auth.signOut();
 
-          console.log('✅ Signed in as:', userData);
-          onLogin(userData.role, userData);
+          // Show success modal AFTER signOut completes
+          setRegisteredEmail(email);
+          setShowSignupSuccess(true);
+
+          // Reset form fields (keep email so it's pre-filled for login)
+          setName('');
+          setPassword('');
+          setShowPassword(false);
+
+        } finally {
+          // Always clear the flag
+          if (typeof window.__setSigningUp === 'function') {
+            window.__setSigningUp(false);
+          }
         }
+
       } else {
         // ============================================
         // SIGN IN FLOW
@@ -217,7 +253,6 @@ const Login = ({ onLogin }) => {
             throw new Error(`This account is registered as ${userData.role}. Please select the correct role.`);
           }
 
-          // Save credentials if remember me is checked
           if (rememberMe) {
             saveCredentials();
           } else {
@@ -243,6 +278,16 @@ const Login = ({ onLogin }) => {
     if (!isSignUp) {
       setRole('customer');
     }
+  };
+
+  // Handle "Proceed to Log In" from success modal
+  const handleProceedToLogin = () => {
+    setShowSignupSuccess(false);
+    setIsSignUp(false);
+    setRole('customer');
+    setError('');
+    setSuccessMessage('');
+    // Email stays filled so user just needs to type password
   };
 
   return (
@@ -332,9 +377,7 @@ const Login = ({ onLogin }) => {
                 </div>
               </div>
 
-              {/* ============================================
-                  REMEMBER ME CHECKBOX (only on Sign In)
-                  ============================================ */}
+              {/* Remember me — only on Sign In */}
               {!isSignUp && (
                 <div className="form-group">
                   <label className="remember-me-label">
@@ -357,6 +400,7 @@ const Login = ({ onLogin }) => {
                 </div>
               )}
 
+              {/* Full name — only on Sign Up */}
               {isSignUp && (
                 <div className="form-group">
                   <label>Full Name</label>
@@ -373,7 +417,7 @@ const Login = ({ onLogin }) => {
                 </div>
               )}
 
-              {/* Role Selection - Only during Sign In */}
+              {/* Role selector — only on Sign In */}
               {!isSignUp && (
                 <div className="form-group">
                   <label>I am a...</label>
@@ -391,7 +435,7 @@ const Login = ({ onLogin }) => {
                 </div>
               )}
 
-              {/* Sign Up Note */}
+              {/* Sign Up note */}
               {isSignUp && (
                 <div className="signup-note">
                   <span className="note-icon">ℹ️</span>
@@ -470,6 +514,13 @@ const Login = ({ onLogin }) => {
           </div>
         </div>
       </div>
+
+      {/* Success Modal */}
+      <SuccessModal
+        isOpen={showSignupSuccess}
+        email={registeredEmail}
+        onProceed={handleProceedToLogin}
+      />
     </div>
   );
 };
