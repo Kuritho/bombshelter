@@ -298,7 +298,18 @@ function CustomerDashboard({ user, onLogout }) {
   const { orders, createOrder, refresh: refreshOrders } = useOrders(user?.id);
 
   // ============================================
-  // FILE HANDLERS
+  // CLEANUP BLOB URLS ON UNMOUNT
+  // ============================================
+  useEffect(() => {
+    return () => {
+      if (gcashProofPreview?.startsWith('blob:')) {
+        URL.revokeObjectURL(gcashProofPreview);
+      }
+    };
+  }, [gcashProofPreview]);
+
+  // ============================================
+  // FILE HANDLERS — BLOB URL (quota-safe)
   // ============================================
   const handleGcashProofSelect = (e) => {
     const file = e.target.files[0];
@@ -314,11 +325,31 @@ function CustomerDashboard({ user, onLogout }) {
         e.target.value = '';
         return;
       }
+
+      // Revoke previous blob URL if any
+      if (gcashProofPreview?.startsWith('blob:')) {
+        URL.revokeObjectURL(gcashProofPreview);
+      }
+
       setGcashProof(file);
-      const reader = new FileReader();
-      reader.onloadend = () => setGcashProofPreview(reader.result);
-      reader.readAsDataURL(file);
+
+      // ✅ BLOB URL — tiny string reference, no quota impact
+      const blobUrl = URL.createObjectURL(file);
+      setGcashProofPreview(blobUrl);
     }
+  };
+
+  // ============================================
+  // CLEAR PROOF — with blob cleanup
+  // ============================================
+  const clearProof = () => {
+    if (gcashProofPreview?.startsWith('blob:')) {
+      URL.revokeObjectURL(gcashProofPreview);
+    }
+    setGcashProof(null);
+    setGcashProofPreview(null);
+    const fileInput = document.getElementById('gcash-proof-input');
+    if (fileInput) fileInput.value = '';
   };
 
   // ============================================
@@ -337,10 +368,7 @@ function CustomerDashboard({ user, onLogout }) {
         onConfirm: () => {
           closeConfirm();
           setPaymentMethod(method);
-          setGcashProof(null);
-          setGcashProofPreview(null);
-          const fileInput = document.getElementById('gcash-proof-input');
-          if (fileInput) fileInput.value = '';
+          clearProof();
         }
       });
     } else {
@@ -404,9 +432,7 @@ function CustomerDashboard({ user, onLogout }) {
     });
   };
 
-  // ============================================
-  // INCREASE QUANTITY — instant, NO confirmation
-  // ============================================
+  // Increase quantity — instant, NO confirmation
   const increaseQty = (id) => {
     const item = cart.find(c => c.id === id);
     if (!item) return;
@@ -416,14 +442,11 @@ function CustomerDashboard({ user, onLogout }) {
     setTimeout(() => setCartNotification(null), 2000);
   };
 
-  // ============================================
-  // DECREASE QUANTITY — instant when qty > 1, confirm when qty = 1
-  // ============================================
+  // Decrease quantity — instant when qty > 1, confirm when qty = 1
   const decreaseQty = (id) => {
     const item = cart.find(c => c.id === id);
     if (!item) return;
 
-    // When qty is 1, decreasing removes the item — keep confirmation
     if (item.qty === 1) {
       openConfirm({
         title: 'Remove Item?',
@@ -442,7 +465,6 @@ function CustomerDashboard({ user, onLogout }) {
       return;
     }
 
-    // Normal decrease — no confirmation
     setCart(cart.map(c => c.id === id ? { ...c, qty: c.qty - 1 } : c));
     setCartNotification(`Reduced ${item.name} quantity`);
     setTimeout(() => setCartNotification(null), 2000);
@@ -624,8 +646,7 @@ function CustomerDashboard({ user, onLogout }) {
           }
 
           setCart([]);
-          setGcashProof(null);
-          setGcashProofPreview(null);
+          clearProof();
           await refreshOrders();
           setActiveTab('orders');
           
@@ -878,9 +899,7 @@ function CustomerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* ============================================
-          MENU VIEW
-          ============================================ */}
+      {/* MENU VIEW */}
       {activeTab === 'menu' && (
         <div className="menu-view">
           <div className="menu-header-section">
@@ -910,9 +929,7 @@ function CustomerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* ============================================
-          CART VIEW
-          ============================================ */}
+      {/* CART VIEW */}
       {activeTab === 'cart' && (
         <div className="cart-view">
           <div className="cart-container">
@@ -1067,12 +1084,7 @@ function CustomerDashboard({ user, onLogout }) {
                           <button 
                             type="button"
                             className="remove-proof-btn"
-                            onClick={() => {
-                              setGcashProof(null);
-                              setGcashProofPreview(null);
-                              const fileInput = document.getElementById('gcash-proof-input');
-                              if (fileInput) fileInput.value = '';
-                            }}
+                            onClick={clearProof}
                           >
                             Remove
                           </button>
@@ -1134,9 +1146,7 @@ function CustomerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* ============================================
-          ORDERS VIEW
-          ============================================ */}
+      {/* ORDERS VIEW */}
       {activeTab === 'orders' && (
         <div className="orders-view">
           <div className="orders-header">
@@ -1379,9 +1389,7 @@ function CustomerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* ============================================
-          PROFILE VIEW
-          ============================================ */}
+      {/* PROFILE VIEW */}
       {activeTab === 'profile' && (
         <div className="profile-view">
           <div className="profile-container">
@@ -1527,9 +1535,7 @@ function CustomerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* ============================================
-          CONFIRMATION MODAL
-          ============================================ */}
+      {/* CONFIRMATION MODAL */}
       <ConfirmModal
         isOpen={confirmModal.isOpen}
         title={confirmModal.title}
@@ -1543,9 +1549,7 @@ function CustomerDashboard({ user, onLogout }) {
         onCancel={closeConfirm}
       />
 
-      {/* ============================================
-          RECEIPT VIEWER MODAL
-          ============================================ */}
+      {/* RECEIPT VIEWER MODAL */}
       <ReceiptViewerModal
         isOpen={!!viewingReceipt}
         imageUrl={viewingReceipt}
