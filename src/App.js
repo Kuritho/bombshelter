@@ -1,3 +1,4 @@
+// src/App.js
 import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { supabase } from './supabaseClient';
@@ -13,26 +14,29 @@ function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // 🔄 NEW: Flag to suppress auto-login during signup flow
-  const isSigningUpRef = useRef(false);
+  // Global flag: while true, App.js ignores ALL auth state changes.
+  // Used during signup AND sign-in to prevent premature redirects.
+  const authInProgressRef = useRef(false);
 
-  // 🔄 NEW: Expose a way for Login.js to set/clear the flag
   useEffect(() => {
-    window.__setSigningUp = (val) => {
-      isSigningUpRef.current = val;
-      console.log('🔒 isSigningUp flag set to:', val);
+    window.__setAuthInProgress = (val) => {
+      authInProgressRef.current = val;
+      console.log('🔒 authInProgress flag set to:', val);
     };
+    // Backward compat for the signup flow that calls __setSigningUp
+    window.__setSigningUp = window.__setAuthInProgress;
+
     return () => {
+      delete window.__setAuthInProgress;
       delete window.__setSigningUp;
     };
   }, []);
 
   useEffect(() => {
-    // Check current session
     const checkSession = async () => {
       try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        
+        const { data: { session } } = await supabase.auth.getSession();
+
         if (session && session.user) {
           const { data: userData, error: userError } = await supabase
             .from('users')
@@ -57,14 +61,13 @@ function App() {
 
     checkSession();
 
-    // Set up auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         console.log('Auth state changed:', event, session);
 
-        // 🔄 NEW: Ignore SIGNED_IN while signup is in progress
-        if (isSigningUpRef.current && event === 'SIGNED_IN') {
-          console.log('🚫 Ignoring auto SIGNED_IN during signup');
+        // 🔒 Ignore all auth events while the login/signup flow is running
+        if (authInProgressRef.current) {
+          console.log('🚫 Ignoring auth event during login flow:', event);
           return;
         }
 
