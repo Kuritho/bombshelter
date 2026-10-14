@@ -18,7 +18,7 @@ import './OwnerDashboard.css';
 import logo from '../assets/logo.jpg';
 
 // ============================================
-// ICONS
+// ICONS (unchanged)
 // ============================================
 const LogOutIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -206,18 +206,12 @@ const getStatusBadge = (status) => {
 };
 
 // ============================================
-// CONFIRMATION MODAL COMPONENT
+// CONFIRMATION MODAL
 // ============================================
 function ConfirmModal({ 
-  isOpen, 
-  title, 
-  message, 
-  confirmText = 'Yes, Confirm', 
-  cancelText = 'No, Cancel',
-  onConfirm, 
-  onCancel,
-  isLoading = false,
-  variant = 'warning'
+  isOpen, title, message, 
+  confirmText = 'Yes, Confirm', cancelText = 'No, Cancel',
+  onConfirm, onCancel, isLoading = false, variant = 'warning'
 }) {
   if (!isOpen) return null;
 
@@ -269,11 +263,7 @@ function OwnerDashboard({ user, onLogout }) {
   
   // Product form
   const [uploadForm, setUploadForm] = useState({
-    name: '',
-    type: 'coffee',
-    price: '',
-    description: '',
-    is_available: true
+    name: '', type: 'coffee', price: '', description: '', is_available: true
   });
   
   // Edit product
@@ -310,28 +300,19 @@ function OwnerDashboard({ user, onLogout }) {
 
   // Confirmation modal
   const [confirmModal, setConfirmModal] = useState({
-    isOpen: false,
-    title: '',
-    message: '',
-    confirmText: 'Yes, Confirm',
-    cancelText: 'No, Cancel',
-    onConfirm: null,
-    variant: 'warning',
-    isLoading: false
+    isOpen: false, title: '', message: '',
+    confirmText: 'Yes, Confirm', cancelText: 'No, Cancel',
+    onConfirm: null, variant: 'warning', isLoading: false
   });
 
   const openConfirm = ({ 
     title, message, confirmText, cancelText, onConfirm, variant = 'warning' 
   }) => {
     setConfirmModal({
-      isOpen: true,
-      title,
-      message,
+      isOpen: true, title, message,
       confirmText: confirmText || 'Yes, Confirm',
       cancelText: cancelText || 'No, Cancel',
-      onConfirm,
-      variant,
-      isLoading: false
+      onConfirm, variant, isLoading: false
     });
   };
 
@@ -394,6 +375,16 @@ function OwnerDashboard({ user, onLogout }) {
   } = useCustomers();
 
   // ============================================
+  // BLOB URL CLEANUP ON UNMOUNT
+  // ============================================
+  useEffect(() => {
+    return () => {
+      if (imagePreview?.startsWith('blob:')) URL.revokeObjectURL(imagePreview);
+      if (editImagePreview?.startsWith('blob:')) URL.revokeObjectURL(editImagePreview);
+    };
+  }, [imagePreview, editImagePreview]);
+
+  // ============================================
   // STORAGE CHECK
   // ============================================
   useEffect(() => {
@@ -430,7 +421,6 @@ function OwnerDashboard({ user, onLogout }) {
   const handleCreateEmployee = (e) => {
     e.preventDefault();
     
-    // Validate first
     if (!employeeForm.name.trim() || !employeeForm.email.trim() || !employeeForm.password) {
       setEmployeeError('Please fill in all fields');
       return;
@@ -491,7 +481,7 @@ function OwnerDashboard({ user, onLogout }) {
   };
 
   // ============================================
-  // IMAGE HANDLERS
+  // IMAGE HANDLERS — BLOB URL (quota-safe)
   // ============================================
   const handleImageSelect = (e) => {
     const file = e.target.files[0];
@@ -507,10 +497,12 @@ function OwnerDashboard({ user, onLogout }) {
         e.target.value = '';
         return;
       }
+      
+      if (imagePreview?.startsWith('blob:')) URL.revokeObjectURL(imagePreview);
+      
       setSelectedImage(file);
-      const reader = new FileReader();
-      reader.onloadend = () => setImagePreview(reader.result);
-      reader.readAsDataURL(file);
+      const blobUrl = URL.createObjectURL(file);
+      setImagePreview(blobUrl);
     }
   };
 
@@ -528,10 +520,12 @@ function OwnerDashboard({ user, onLogout }) {
         e.target.value = '';
         return;
       }
+      
+      if (editImagePreview?.startsWith('blob:')) URL.revokeObjectURL(editImagePreview);
+      
       setEditImage(file);
-      const reader = new FileReader();
-      reader.onloadend = () => setEditImagePreview(reader.result);
-      reader.readAsDataURL(file);
+      const blobUrl = URL.createObjectURL(file);
+      setEditImagePreview(blobUrl);
     }
   };
 
@@ -544,7 +538,6 @@ function OwnerDashboard({ user, onLogout }) {
   const handleUploadProduct = (e) => {
     e.preventDefault();
     
-    // Validate
     if (!uploadForm.name.trim()) { alert('Please enter a product name'); return; }
     if (!uploadForm.price || parseFloat(uploadForm.price) <= 0) { alert('Please enter a valid price'); return; }
     if (!uploadForm.description.trim()) { alert('Please enter a product description'); return; }
@@ -579,6 +572,8 @@ function OwnerDashboard({ user, onLogout }) {
           setUploadProgress(100);
           
           setUploadForm({ name: '', type: 'coffee', price: '', description: '', is_available: true });
+          
+          if (imagePreview?.startsWith('blob:')) URL.revokeObjectURL(imagePreview);
           setSelectedImage(null);
           setImagePreview(null);
           
@@ -614,7 +609,6 @@ function OwnerDashboard({ user, onLogout }) {
   const handleUpdateProduct = (e) => {
     e.preventDefault();
     
-    // Validate
     if (!editForm.name.trim()) { alert('Please enter a product name'); return; }
     if (!editForm.price || parseFloat(editForm.price) <= 0) { alert('Please enter a valid price'); return; }
     if (!editForm.description.trim()) { alert('Please enter a product description'); return; }
@@ -655,6 +649,8 @@ function OwnerDashboard({ user, onLogout }) {
           setUploadProgress(100);
           setIsEditing(false);
           setEditingProduct(null);
+          
+          if (editImagePreview?.startsWith('blob:')) URL.revokeObjectURL(editImagePreview);
           setEditImage(null);
           setEditImagePreview(null);
           
@@ -715,7 +711,6 @@ function OwnerDashboard({ user, onLogout }) {
       cancelText: 'No, Cancel',
       variant: newStatus === 'declined' || newStatus === 'cancelled' ? 'danger' : 'warning',
       onConfirm: async () => {
-        // Show loading state
         setConfirmModal(prev => ({ ...prev, isLoading: true }));
         
         try {
@@ -1019,7 +1014,7 @@ function OwnerDashboard({ user, onLogout }) {
   };
 
   // ============================================
-  // RENDER
+  // RENDER (unchanged JSX structure)
   // ============================================
   return (
     <div className="owner-dashboard">
@@ -1100,9 +1095,7 @@ function OwnerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* ============================================
-          ORDERS TAB
-          ============================================ */}
+      {/* ORDERS TAB */}
       {activeTab === 'orders' && (
         <div className="orders-section">
           <div className="metrics-grid">
@@ -1278,9 +1271,7 @@ function OwnerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* ============================================
-          MENU TAB
-          ============================================ */}
+      {/* MENU TAB */}
       {activeTab === 'menu' && (
         <div className="menu-section">
           <div className="menu-header">
@@ -1338,9 +1329,7 @@ function OwnerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* ============================================
-          EDIT PRODUCT MODAL
-          ============================================ */}
+      {/* EDIT PRODUCT MODAL */}
       {isEditing && editingProduct && (
         <div className="modal-overlay" onClick={() => {
           setIsEditing(false); setEditingProduct(null); setEditImage(null); setEditImagePreview(null);
@@ -1365,6 +1354,7 @@ function OwnerDashboard({ user, onLogout }) {
                         <div className="image-preview-container">
                           <img src={editImagePreview} alt="Product preview" className="image-preview" />
                           <button type="button" className="remove-image-btn" onClick={() => {
+                            if (editImagePreview?.startsWith('blob:')) URL.revokeObjectURL(editImagePreview);
                             setEditImage(null); setEditImagePreview(null);
                             const fileInput = document.getElementById('edit-image-input');
                             if (fileInput) fileInput.value = '';
@@ -1444,9 +1434,7 @@ function OwnerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* ============================================
-          ADD PRODUCT TAB
-          ============================================ */}
+      {/* ADD PRODUCT TAB */}
       {activeTab === 'add-product' && (
         <div className="add-product-section">
           <div className="add-product-container">
@@ -1482,6 +1470,7 @@ function OwnerDashboard({ user, onLogout }) {
                         <div className="image-preview-container">
                           <img src={imagePreview} alt="Product preview" className="image-preview" />
                           <button type="button" className="remove-image-btn" onClick={() => {
+                            if (imagePreview?.startsWith('blob:')) URL.revokeObjectURL(imagePreview);
                             setSelectedImage(null); setImagePreview(null);
                             const fileInput = document.getElementById('product-image-input');
                             if (fileInput) fileInput.value = '';
@@ -1557,9 +1546,7 @@ function OwnerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* ============================================
-          ANALYTICS TAB
-          ============================================ */}
+      {/* ANALYTICS TAB */}
       {activeTab === 'analytics' && (
         <div className="analytics-section">
           <h2>Sales Analytics</h2>
@@ -1646,9 +1633,7 @@ function OwnerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* ============================================
-          FEEDBACK TAB
-          ============================================ */}
+      {/* FEEDBACK TAB */}
       {activeTab === 'feedback' && (
         <div className="feedback-section">
           <h2>Customer Reviews</h2>
@@ -1678,9 +1663,7 @@ function OwnerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* ============================================
-          EMPLOYEES TAB
-          ============================================ */}
+      {/* EMPLOYEES TAB */}
       {activeTab === 'employees' && (
         <div className="employees-container">
           <div className="employees-grid">
@@ -1756,9 +1739,7 @@ function OwnerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* ============================================
-          CUSTOMERS TAB
-          ============================================ */}
+      {/* CUSTOMERS TAB */}
       {activeTab === 'customers' && (
         <div className="customers-container">
           <div className="customers-header">
@@ -1869,9 +1850,7 @@ function OwnerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* ============================================
-          PROFILE TAB
-          ============================================ */}
+      {/* PROFILE TAB */}
       {activeTab === 'profile' && (
         <div className="profile-view">
           <div className="profile-container">
@@ -1982,9 +1961,7 @@ function OwnerDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* ============================================
-          ORDER REVIEW MODAL
-          ============================================ */}
+      {/* ORDER REVIEW MODAL */}
       {reviewingOrder && (
         <div className="modal-overlay" onClick={() => setReviewingOrder(null)}>
           <div className="modal-content order-review-modal" onClick={(e) => e.stopPropagation()}>
