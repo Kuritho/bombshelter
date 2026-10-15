@@ -1232,3 +1232,38 @@
     width: 100%;
   }
 }
+
+
+/* Employee Menu tab — aligned with the customer and owner menu experience */
+.employee-nav-emoji { font-size: 1.05rem; line-height: 1; }
+.employee-menu-view { max-width: 1440px; margin: 0 auto; padding: 2rem; color: #f8fafc; }
+.employee-menu-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 2rem; padding: 1.6rem; border: 1px solid rgba(255,255,255,.09); border-radius: 18px; background: linear-gradient(120deg, rgba(124,64,35,.22), rgba(255,255,255,.035)); }
+.employee-menu-eyebrow { margin: 0 0 .35rem; color: #f5a477; font-size: .72rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+.employee-menu-heading h2 { margin: 0 0 .45rem; font-family: 'Playfair Display', serif; font-size: clamp(1.7rem, 3vw, 2.25rem); color: #fff; }
+.employee-menu-heading p:not(.employee-menu-eyebrow) { margin: 0; color: #aeb7c5; font-size: .92rem; }
+.employee-menu-total { flex-shrink: 0; padding: .7rem 1rem; border: 1px solid rgba(245,164,119,.25); border-radius: 999px; color: #ffc09b; background: rgba(124,64,35,.2); font-size: .85rem; font-weight: 700; }
+.employee-menu-category { margin-bottom: 2rem; }
+.employee-menu-category-title { display: flex; align-items: center; gap: .8rem; margin-bottom: 1rem; padding: .85rem 1rem; border-left: 4px solid var(--employee-category-color, #d97745); border-radius: 0 12px 12px 0; background: rgba(255,255,255,.045); }
+.employee-menu-category-icon { font-size: 1.6rem; }
+.employee-menu-category-title h3 { margin: 0 0 .2rem; color: #fff; font-size: 1.1rem; }
+.employee-menu-category-title span:not(.employee-menu-category-icon) { color: #9ca8b8; font-size: .78rem; }
+.employee-menu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(245px, 1fr)); gap: 1rem; }
+.employee-menu-card { overflow: hidden; border: 1px solid rgba(255,255,255,.08); border-radius: 16px; background: rgba(25,25,35,.88); transition: transform .2s ease, border-color .2s ease; }
+.employee-menu-card:hover { transform: translateY(-3px); border-color: rgba(245,164,119,.4); }
+.employee-menu-image { display: block; width: 100%; height: 175px; object-fit: cover; background: #28232a; }
+.employee-menu-image-placeholder { display: grid; place-items: center; color: #d9946e; font-size: 3rem; }
+.employee-menu-card-content { padding: 1rem; }
+.employee-menu-name-price { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; }
+.employee-menu-name-price h4 { margin: 0; color: #f8fafc; font-size: 1rem; line-height: 1.4; }
+.employee-menu-name-price strong { color: #ffad7e; white-space: nowrap; font-size: .98rem; }
+.employee-menu-description { min-height: 2.5rem; margin: .6rem 0 .9rem; color: #aab3c1; font-size: .83rem; line-height: 1.5; }
+.employee-menu-card-footer { display: flex; align-items: center; justify-content: space-between; gap: .5rem; flex-wrap: wrap; }
+.employee-menu-availability { display: inline-flex; padding: .3rem .6rem; border-radius: 999px; font-size: .72rem; font-weight: 700; }
+.employee-menu-availability.available { color: #6ee7b7; background: rgba(16,185,129,.12); }
+.employee-menu-availability.unavailable { color: #fca5a5; background: rgba(239,68,68,.12); }
+.employee-menu-rating { color: #fbbf24; font-size: .76rem; }
+.employee-menu-empty { padding: 3rem 1rem; text-align: center; border: 1px dashed rgba(255,255,255,.16); border-radius: 16px; color: #aeb7c5; }
+.employee-menu-empty > span { display: block; margin-bottom: .5rem; font-size: 2.5rem; }
+.employee-menu-empty h3 { margin: 0 0 .5rem; color: #fff; }
+.employee-menu-empty p { margin: 0; }
+@media (max-width: 640px) { .employee-menu-view { padding: 1rem; } .employee-menu-heading { align-items: flex-start; flex-direction: column; padding: 1.2rem; } .employee-menu-grid { grid-template-columns: 1fr; } .employee-menu-image { height: 200px; } }
