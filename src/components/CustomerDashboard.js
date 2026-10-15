@@ -1,6 +1,13 @@
+// src/components/CustomerDashboard.js
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
-import { useMenuItems, useOrders } from '../hooks/useSupabase';
+import {
+  useMenuItems,
+  useOrders,
+  useCategories,
+  useBestSellers,
+  useProductRatings
+} from '../hooks/useSupabase';
 import './CustomerDashboard.css';
 
 import logo from '../assets/logo.jpg';
@@ -159,28 +166,54 @@ const PayMayaIcon = () => (
 );
 
 // ============================================
+// RATING STARS
+// ============================================
+function RatingStars({ value = 0, count = 0, size = 14 }) {
+  const stars = [1, 2, 3, 4, 5];
+  const rounded = Math.round(value * 2) / 2;
+
+  return (
+    <div className="rating-stars" aria-label={`Rating: ${value} of 5`}>
+      {stars.map(s => {
+        const filled = rounded >= s;
+        const half = !filled && rounded >= s - 0.5;
+        return (
+          <span
+            key={s}
+            className={`rating-star ${filled ? 'filled' : half ? 'half' : ''}`}
+            style={{ fontSize: size }}
+          >
+            {filled ? '★' : half ? '⯨' : '☆'}
+          </span>
+        );
+      })}
+      <span className="rating-count">
+        {count > 0 ? `${value.toFixed(1)} (${count})` : 'No reviews yet'}
+      </span>
+    </div>
+  );
+}
+
+// ============================================
 // HELPERS
 // ============================================
 const getPaymentStatusInfo = (status) => {
   switch (status) {
-    case 'valid':
-      return { label: '✅ Verified', className: 'valid' };
+    case 'confirmed':
+      return { label: '✅ Confirmed', className: 'confirmed' };
+    case 'rejected':
+      return { label: '❌ Rejected', className: 'rejected' };
     case 'unverified':
-      return { label: '⏳ Awaiting Verification', className: 'unverified' };
-    case 'underpayment':
-      return { label: '⚠️ Underpaid', className: 'underpayment' };
-    case 'overpayment':
-      return { label: '⚠️ Overpaid', className: 'overpayment' };
     default:
-      return { label: '⏳ Unverified', className: 'unverified' };
+      return { label: '⏳ Awaiting Verification', className: 'unverified' };
   }
 };
 
 // ============================================
 // CONFIRMATION MODAL
 // ============================================
-function ConfirmModal({ 
-  isOpen, title, message, 
+function ConfirmModal({
+  isOpen, title, message,
   confirmText = 'Yes, Confirm', cancelText = 'No, Cancel',
   onConfirm, onCancel, isLoading = false,
   variant = 'warning', iconType = 'warning'
@@ -189,26 +222,26 @@ function ConfirmModal({
 
   return (
     <div className="confirm-modal-overlay" onClick={onCancel}>
-      <div 
-        className={`confirm-modal-content confirm-modal-${variant}`} 
+      <div
+        className={`confirm-modal-content confirm-modal-${variant}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="confirm-modal-icon">
           {iconType === 'x-circle' ? <XCircleIcon /> : <WarningIcon />}
         </div>
-        
+
         <h3 className="confirm-modal-title">{title}</h3>
         <p className="confirm-modal-message">{message}</p>
-        
+
         <div className="confirm-modal-actions">
-          <button 
+          <button
             className="confirm-btn confirm-btn-no"
             onClick={onCancel}
             disabled={isLoading}
           >
             {cancelText}
           </button>
-          <button 
+          <button
             className={`confirm-btn confirm-btn-yes confirm-btn-yes-${variant}`}
             onClick={onConfirm}
             disabled={isLoading}
@@ -253,12 +286,11 @@ function CustomerDashboard({ user, onLogout }) {
   const [error, setError] = useState(null);
   const [cartNotification, setCartNotification] = useState(null);
   const [cancellingOrder, setCancellingOrder] = useState(null);
-  
-  // Receipt viewer + expanded order
+
+  const [activeCategory, setActiveCategory] = useState(null);
   const [viewingReceipt, setViewingReceipt] = useState(null);
   const [expandedOrder, setExpandedOrder] = useState(null);
-  
-  // Profile state
+
   const [profile, setProfile] = useState({
     name: user?.name || '',
     email: user?.email || '',
@@ -271,15 +303,14 @@ function CustomerDashboard({ user, onLogout }) {
   const [profileError, setProfileError] = useState('');
   const [isEditingProfile, setIsEditingProfile] = useState(false);
 
-  // Confirmation modal state
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false, title: '', message: '',
     confirmText: 'Yes, Confirm', cancelText: 'No, Cancel',
     onConfirm: null, variant: 'warning', iconType: 'warning', isLoading: false
   });
 
-  const openConfirm = ({ 
-    title, message, confirmText, cancelText, onConfirm, 
+  const openConfirm = ({
+    title, message, confirmText, cancelText, onConfirm,
     variant = 'warning', iconType = 'warning'
   }) => {
     setConfirmModal({
@@ -293,8 +324,13 @@ function CustomerDashboard({ user, onLogout }) {
   const closeConfirm = () => {
     setConfirmModal(prev => ({ ...prev, isOpen: false, onConfirm: null, isLoading: false }));
   };
-  
-  const { items: menuItems, loading: menuLoading } = useMenuItems();
+
+  const { items: menuItems, loading: menuLoading, refetch: refetchMenuItems } = useMenuItems();
+  const { categories } = useCategories();
+  const { items: bestSellers, refetch: refetchBestSellers } = useBestSellers(6);
+  const { refetch: refetchRatings } = useProductRatings();
+
+  // ✅ Pass user.id so useOrders filters to this customer
   const { orders, createOrder, refresh: refreshOrders } = useOrders(user?.id);
 
   // ============================================
@@ -309,7 +345,18 @@ function CustomerDashboard({ user, onLogout }) {
   }, [gcashProofPreview]);
 
   // ============================================
-  // FILE HANDLERS — BLOB URL (quota-safe)
+  // DERIVED DATA
+  // ============================================
+  const menuCounts = React.useMemo(() => {
+    const counts = { all: menuItems.length };
+    categories.forEach(cat => {
+      counts[cat.slug] = menuItems.filter(i => i.category_id === cat.id).length;
+    });
+    return counts;
+  }, [menuItems, categories]);
+
+  // ============================================
+  // FILE HANDLERS
   // ============================================
   const handleGcashProofSelect = (e) => {
     const file = e.target.files[0];
@@ -326,22 +373,16 @@ function CustomerDashboard({ user, onLogout }) {
         return;
       }
 
-      // Revoke previous blob URL if any
       if (gcashProofPreview?.startsWith('blob:')) {
         URL.revokeObjectURL(gcashProofPreview);
       }
 
       setGcashProof(file);
-
-      // ✅ BLOB URL — tiny string reference, no quota impact
       const blobUrl = URL.createObjectURL(file);
       setGcashProofPreview(blobUrl);
     }
   };
 
-  // ============================================
-  // CLEAR PROOF — with blob cleanup
-  // ============================================
   const clearProof = () => {
     if (gcashProofPreview?.startsWith('blob:')) {
       URL.revokeObjectURL(gcashProofPreview);
@@ -353,11 +394,11 @@ function CustomerDashboard({ user, onLogout }) {
   };
 
   // ============================================
-  // PAYMENT METHOD — WITH CONFIRMATION
+  // PAYMENT METHOD
   // ============================================
   const handlePaymentMethodChange = (method) => {
     if (method === paymentMethod) return;
-    
+
     if (gcashProof) {
       openConfirm({
         title: 'Change Payment Method?',
@@ -406,12 +447,10 @@ function CustomerDashboard({ user, onLogout }) {
   // ============================================
   // CART OPERATIONS
   // ============================================
-
-  // Add to cart — WITH confirmation
   const addToCart = (item) => {
     setError(null);
     const existing = cart.find(cartItem => cartItem.id === item.id);
-    
+
     openConfirm({
       title: 'Add to Cart?',
       message: `Add "${item.name}" (₱${item.price}) to your cart?`,
@@ -432,7 +471,6 @@ function CustomerDashboard({ user, onLogout }) {
     });
   };
 
-  // Increase quantity — instant, NO confirmation
   const increaseQty = (id) => {
     const item = cart.find(c => c.id === id);
     if (!item) return;
@@ -442,7 +480,6 @@ function CustomerDashboard({ user, onLogout }) {
     setTimeout(() => setCartNotification(null), 2000);
   };
 
-  // Decrease quantity — instant when qty > 1, confirm when qty = 1
   const decreaseQty = (id) => {
     const item = cart.find(c => c.id === id);
     if (!item) return;
@@ -470,7 +507,6 @@ function CustomerDashboard({ user, onLogout }) {
     setTimeout(() => setCartNotification(null), 2000);
   };
 
-  // Remove from cart — WITH confirmation
   const removeFromCart = (id) => {
     const item = cart.find(c => c.id === id);
     if (!item) return;
@@ -492,7 +528,6 @@ function CustomerDashboard({ user, onLogout }) {
     });
   };
 
-  // Clear cart — WITH confirmation
   const clearCart = () => {
     openConfirm({
       title: 'Clear Entire Cart?',
@@ -510,12 +545,12 @@ function CustomerDashboard({ user, onLogout }) {
   };
 
   // ============================================
-  // CANCEL ORDER — WITH CONFIRMATION
+  // CANCEL ORDER
   // ============================================
   const cancelOrder = (order) => {
     openConfirm({
       title: 'Cancel Order?',
-      message: `Are you sure you want to cancel order #${order.order_number || order.id.slice(0, 8)}? This action cannot be undone and the order will be permanently cancelled.`,
+      message: `Cancel order #${order.order_number || order.id.slice(0, 8)}? This cannot be undone.`,
       confirmText: 'Yes, Cancel Order',
       cancelText: 'No, Keep Order',
       variant: 'danger',
@@ -550,7 +585,7 @@ function CustomerDashboard({ user, onLogout }) {
     try {
       const fileExt = file.name.split('.').pop();
       const fileName = `proofs/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-      
+
       const { error: uploadError } = await supabase.storage
         .from('product-images')
         .upload(fileName, file, { cacheControl: '3600', upsert: false });
@@ -568,7 +603,7 @@ function CustomerDashboard({ user, onLogout }) {
   };
 
   // ============================================
-  // CHECKOUT — WITH CONFIRMATION
+  // CHECKOUT — Steps logged clearly
   // ============================================
   const handleCheckout = () => {
     if (!gcashProof) {
@@ -597,16 +632,26 @@ function CustomerDashboard({ user, onLogout }) {
         setOrderLoading(true);
 
         try {
+          // --------------------------------------------
+          // STEP 1: Upload proof
+          // --------------------------------------------
+          console.log('🖼️ STEP 1: Uploading proof image...');
           let proofImageUrl = null;
           try {
             proofImageUrl = await uploadProofImage(gcashProof);
+            console.log('✅ Proof uploaded:', proofImageUrl);
           } catch (uploadError) {
+            console.error('❌ Proof upload failed:', uploadError);
             setConfirmModal(prev => ({ ...prev, isLoading: false }));
-            alert('Failed to upload payment proof. Please try again.');
+            alert('Failed to upload payment proof: ' + uploadError.message);
             setOrderLoading(false);
             return;
           }
 
+          // --------------------------------------------
+          // STEP 2: Create order row
+          // --------------------------------------------
+          console.log('📦 STEP 2: Creating order...');
           const orderData = {
             customer_id: user.id,
             status: 'pending',
@@ -620,13 +665,19 @@ function CustomerDashboard({ user, onLogout }) {
           let newOrder;
           try {
             newOrder = await createOrder(orderData);
+            console.log('✅ Order created. ID:', newOrder.id);
           } catch (orderError) {
+            console.error('❌ Order create failed:', orderError);
             setConfirmModal(prev => ({ ...prev, isLoading: false }));
             alert('Failed to create order: ' + (orderError.message || 'Please try again.'));
             setOrderLoading(false);
             return;
           }
 
+          // --------------------------------------------
+          // STEP 3: Insert order items
+          // --------------------------------------------
+          console.log('🛒 STEP 3: Inserting order items...');
           const orderItems = cart.map(item => ({
             order_id: newOrder.id,
             menu_item_id: item.id,
@@ -639,20 +690,36 @@ function CustomerDashboard({ user, onLogout }) {
             .insert(orderItems);
 
           if (itemsError) {
+            console.error('❌ Order items insert failed:', itemsError);
             setConfirmModal(prev => ({ ...prev, isLoading: false }));
-            alert('Failed to save order items. Please contact support.');
+            alert('Failed to save order items: ' + itemsError.message);
             setOrderLoading(false);
             return;
           }
 
+          console.log('✅ Order items inserted:', orderItems.length);
+
+          // --------------------------------------------
+          // STEP 4: Clear local state
+          // --------------------------------------------
           setCart([]);
           clearProof();
+
+          // --------------------------------------------
+          // STEP 5: Refresh orders from server
+          // --------------------------------------------
+          console.log('🔄 STEP 5: Refreshing orders from server...');
           await refreshOrders();
+
+          // --------------------------------------------
+          // STEP 6: Navigate to Orders tab
+          // --------------------------------------------
           setActiveTab('orders');
-          
+
           closeConfirm();
           alert(`✅ Order placed successfully!\nOrder #: ${newOrder.order_number || newOrder.id.slice(0, 8)}`);
         } catch (error) {
+          console.error('❌ Unexpected checkout error:', error);
           setConfirmModal(prev => ({ ...prev, isLoading: false }));
           setError(error.message || 'Failed to place order. Please try again.');
           alert('❌ Failed to place order: ' + (error.message || 'Please try again.'));
@@ -664,7 +731,7 @@ function CustomerDashboard({ user, onLogout }) {
   };
 
   // ============================================
-  // SUBMIT REVIEW — WITH CONFIRMATION
+  // SUBMIT REVIEW
   // ============================================
   const submitReview = (orderId) => {
     if (!reviewForm.text.trim()) {
@@ -674,7 +741,7 @@ function CustomerDashboard({ user, onLogout }) {
 
     openConfirm({
       title: 'Submit Review?',
-      message: `Are you sure you want to submit this ${reviewForm.rating}-star review?\n\n"${reviewForm.text}"\n\nThis will be visible on the owner's dashboard.`,
+      message: `Submit this ${reviewForm.rating}-star review?\n\n"${reviewForm.text}"\n\nThis will be visible on the owner's dashboard.`,
       confirmText: 'Yes, Submit Review',
       cancelText: 'No, Edit First',
       variant: 'warning',
@@ -695,7 +762,11 @@ function CustomerDashboard({ user, onLogout }) {
 
           setReviewForm({ orderId: null, rating: 5, text: '' });
           await refreshOrders();
-          
+
+          if (typeof refetchRatings === 'function') await refetchRatings();
+          if (typeof refetchBestSellers === 'function') await refetchBestSellers();
+          if (typeof refetchMenuItems === 'function') await refetchMenuItems();
+
           closeConfirm();
           alert('✅ Review submitted successfully!');
         } catch (error) {
@@ -707,11 +778,11 @@ function CustomerDashboard({ user, onLogout }) {
   };
 
   // ============================================
-  // PROFILE — WITH CONFIRMATION
+  // PROFILE
   // ============================================
   const handleProfileUpdate = (e) => {
     e.preventDefault();
-    
+
     if (profile.name === user?.name) {
       alert('No changes to save.');
       return;
@@ -719,7 +790,7 @@ function CustomerDashboard({ user, onLogout }) {
 
     openConfirm({
       title: 'Update Profile?',
-      message: `Are you sure you want to change your name to "${profile.name}"?`,
+      message: `Change your name to "${profile.name}"?`,
       confirmText: 'Yes, Update',
       cancelText: 'No, Cancel',
       variant: 'warning',
@@ -767,7 +838,7 @@ function CustomerDashboard({ user, onLogout }) {
 
     openConfirm({
       title: 'Change Password?',
-      message: 'Are you sure you want to change your account password? You will need to use the new password on your next login.',
+      message: 'Change your account password? You will need to use the new password on your next login.',
       confirmText: 'Yes, Change Password',
       cancelText: 'No, Cancel',
       variant: 'warning',
@@ -795,7 +866,7 @@ function CustomerDashboard({ user, onLogout }) {
   };
 
   // ============================================
-  // LOGOUT — WITH CONFIRMATION
+  // LOGOUT
   // ============================================
   const handleLogout = () => {
     openConfirm({
@@ -856,14 +927,14 @@ function CustomerDashboard({ user, onLogout }) {
 
       {/* Navigation */}
       <nav className="dashboard-nav">
-        <button 
+        <button
           className={`nav-tab ${activeTab === 'menu' ? 'active' : ''}`}
           onClick={() => setActiveTab('menu')}
         >
           <CoffeeIcon />
           <span>Menu</span>
         </button>
-        <button 
+        <button
           className={`nav-tab ${activeTab === 'cart' ? 'active' : ''}`}
           onClick={() => setActiveTab('cart')}
         >
@@ -871,14 +942,14 @@ function CustomerDashboard({ user, onLogout }) {
           <span>Cart</span>
           {cartItemCount > 0 && <span className="cart-badge">{cartItemCount}</span>}
         </button>
-        <button 
+        <button
           className={`nav-tab ${activeTab === 'orders' ? 'active' : ''}`}
           onClick={() => setActiveTab('orders')}
         >
           <OrdersIcon />
           <span>Orders</span>
         </button>
-        <button 
+        <button
           className={`nav-tab ${activeTab === 'profile' ? 'active' : ''}`}
           onClick={() => {
             setActiveTab('profile');
@@ -906,25 +977,150 @@ function CustomerDashboard({ user, onLogout }) {
             <h2>Our Menu</h2>
             <p className="menu-subtitle">Handcrafted with love, brewed to perfection</p>
           </div>
-          <div className="menu-grid">
-            {menuItems.map(item => (
-              <div key={item.id} className="menu-item-card">
-                <div className="item-image-wrapper">
-                  <img src={item.image_url} alt={item.name} className="item-image" />
-                  <div className="item-category">{item.type}</div>
-                </div>
-                <div className="item-content">
-                  <div className="item-header">
-                    <h3 className="item-title">{item.name}</h3>
-                    <p className="item-price">₱{item.price}</p>
-                  </div>
-                  <p className="item-description">{item.description}</p>
-                  <button className="add-to-cart-btn" onClick={() => addToCart(item)}>
-                    <ShoppingCartIcon /> Add to Cart
-                  </button>
-                </div>
+
+          {bestSellers.length > 0 && (
+            <div className="best-sellers-section">
+              <div className="best-sellers-header">
+                <h3>🔥 Best Sellers</h3>
+                <span className="best-sellers-sub">Ranked by sales × customer rating</span>
               </div>
-            ))}
+              <div className="best-sellers-row">
+                {bestSellers.map((item, idx) => (
+                  <div key={item.id} className="best-seller-card">
+                    <div className="best-seller-image-wrapper">
+                      <img src={item.image_url} alt={item.name} className="best-seller-image" />
+                      <div className="best-seller-rank">
+                        #{idx + 1} · {item.total_sold} sold
+                      </div>
+                    </div>
+                    <div className="best-seller-info">
+                      <h4>{item.name}</h4>
+                      <div className="best-seller-meta">
+                        <RatingStars
+                          value={Number(item.avg_rating) || 0}
+                          count={item.review_count}
+                        />
+                        <span className="best-seller-price">₱{item.price}</span>
+                      </div>
+                    </div>
+                    <button
+                      className="add-to-cart-btn compact"
+                      onClick={() => addToCart({
+                        id: item.id,
+                        name: item.name,
+                        price: item.price,
+                        image_url: item.image_url,
+                        description: item.description
+                      })}
+                    >
+                      <ShoppingCartIcon /> Add
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {categories.length > 0 && (
+            <div className="category-jump-nav">
+              <span className="category-jump-label">Jump to:</span>
+              <div className="category-jump-pills">
+                {categories
+                  .filter(cat => (menuCounts[cat.slug] || 0) > 0)
+                  .map(cat => (
+                    <button
+                      key={cat.id}
+                      className="category-jump-pill"
+                      onClick={() => {
+                        const el = document.getElementById(`category-${cat.slug}`);
+                        if (el) {
+                          const yOffset = -100;
+                          const y = el.getBoundingClientRect().top + window.pageYOffset + yOffset;
+                          window.scrollTo({ top: y, behavior: 'smooth' });
+                        }
+                      }}
+                      style={{ '--cat-color': cat.color }}
+                    >
+                      <span className="category-jump-icon">{cat.icon}</span>
+                      <span>{cat.name}</span>
+                      <span className="category-jump-count">{menuCounts[cat.slug] || 0}</span>
+                    </button>
+                  ))}
+              </div>
+            </div>
+          )}
+
+          <div className="category-sections">
+            {categories.filter(cat => (menuCounts[cat.slug] || 0) > 0).length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-icon">☕</div>
+                <h3>No items on the menu yet</h3>
+                <p>Check back soon!</p>
+              </div>
+            ) : (
+              categories
+                .filter(cat => (menuCounts[cat.slug] || 0) > 0)
+                .map(cat => {
+                  const itemsInCategory = menuItems.filter(i => i.category_id === cat.id);
+                  return (
+                    <section
+                      key={cat.id}
+                      id={`category-${cat.slug}`}
+                      className="category-section"
+                    >
+                      <div
+                        className="category-section-header"
+                        style={{ '--cat-color': cat.color }}
+                      >
+                        <div className="category-section-title-wrap">
+                          <span className="category-section-icon">{cat.icon}</span>
+                          <div>
+                            <h3 className="category-section-title">{cat.name}</h3>
+                            <p className="category-section-count">
+                              {itemsInCategory.length} item{itemsInCategory.length !== 1 ? 's' : ''}
+                            </p>
+                          </div>
+                        </div>
+                        <div
+                          className="category-section-accent"
+                          style={{ background: cat.color }}
+                        />
+                      </div>
+
+                      <div className="category-section-grid">
+                        {itemsInCategory.map(item => (
+                          <div key={item.id} className="menu-item-card">
+                            <div className="item-image-wrapper">
+                              <img src={item.image_url} alt={item.name} className="item-image" />
+                              <div className="item-category">
+                                {item.category?.icon} {item.category?.name || item.type}
+                              </div>
+                            </div>
+                            <div className="item-content">
+                              <div className="item-header">
+                                <h3 className="item-title">{item.name}</h3>
+                                <p className="item-price">₱{item.price}</p>
+                              </div>
+
+                              <div className="item-rating-row">
+                                <RatingStars
+                                  value={Number(item.avg_rating) || 0}
+                                  count={item.review_count || 0}
+                                />
+                              </div>
+
+                              <p className="item-description">{item.description}</p>
+                              <button className="add-to-cart-btn" onClick={() => addToCart(item)}>
+                                <ShoppingCartIcon /> Add to Cart
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  );
+                })
+            )}
           </div>
         </div>
       )}
@@ -964,7 +1160,7 @@ function CustomerDashboard({ user, onLogout }) {
                       </div>
                       <div className="cart-item-actions">
                         <div className="qty-controls">
-                          <button 
+                          <button
                             className="qty-btn qty-btn-minus"
                             onClick={() => decreaseQty(item.id)}
                             title="Decrease quantity"
@@ -972,7 +1168,7 @@ function CustomerDashboard({ user, onLogout }) {
                             <MinusIcon />
                           </button>
                           <span className="qty-value">{item.qty}</span>
-                          <button 
+                          <button
                             className="qty-btn qty-btn-plus"
                             onClick={() => increaseQty(item.id)}
                             title="Increase quantity"
@@ -981,8 +1177,8 @@ function CustomerDashboard({ user, onLogout }) {
                           </button>
                         </div>
                         <span className="cart-item-total">₱{(item.price * item.qty).toFixed(2)}</span>
-                        <button 
-                          className="remove-btn" 
+                        <button
+                          className="remove-btn"
                           onClick={() => removeFromCart(item.id)}
                           title="Remove item"
                         >
@@ -994,21 +1190,21 @@ function CustomerDashboard({ user, onLogout }) {
                 </>
               )}
             </div>
-            
+
             {cart.length > 0 && (
               <div className="checkout-panel">
                 <h2>Order Summary</h2>
-                
+
                 <div className="order-type-selector">
                   <label>Order Type</label>
                   <div className="order-type-options">
-                    <button 
+                    <button
                       className={`order-type-btn ${orderType === 'dine-in' ? 'active' : ''}`}
                       onClick={() => setOrderType('dine-in')}
                     >
                       🍽️ Dine In
                     </button>
-                    <button 
+                    <button
                       className={`order-type-btn ${orderType === 'takeout' ? 'active' : ''}`}
                       onClick={() => setOrderType('takeout')}
                     >
@@ -1020,14 +1216,14 @@ function CustomerDashboard({ user, onLogout }) {
                 <div className="payment-method-selector">
                   <label>Payment Method</label>
                   <div className="payment-method-options">
-                    <button 
+                    <button
                       className={`payment-method-btn gcash ${paymentMethod === 'gcash' ? 'active' : ''}`}
                       onClick={() => handlePaymentMethodChange('gcash')}
                     >
                       <GCashIcon />
                       <span>GCash</span>
                     </button>
-                    <button 
+                    <button
                       className={`payment-method-btn paymaya ${paymentMethod === 'paymaya' ? 'active' : ''}`}
                       onClick={() => handlePaymentMethodChange('paymaya')}
                     >
@@ -1048,8 +1244,8 @@ function CustomerDashboard({ user, onLogout }) {
                       <span className="step-title">Scan the QR code to pay</span>
                     </div>
                     <div className="qr-code-container">
-                      <img 
-                        src={paymentMethod === 'gcash' ? gcashQR : paymayaQR} 
+                      <img
+                        src={paymentMethod === 'gcash' ? gcashQR : paymayaQR}
                         alt={`${paymentMethod === 'gcash' ? 'GCash' : 'PayMaya'} QR Code`}
                         className="qr-code-image"
                       />
@@ -1058,7 +1254,7 @@ function CustomerDashboard({ user, onLogout }) {
                       </div>
                     </div>
 
-                    <button 
+                    <button
                       type="button"
                       className="download-qr-btn"
                       onClick={downloadQR}
@@ -1081,7 +1277,7 @@ function CustomerDashboard({ user, onLogout }) {
                       {gcashProofPreview ? (
                         <div className="proof-preview">
                           <img src={gcashProofPreview} alt="Payment proof" />
-                          <button 
+                          <button
                             type="button"
                             className="remove-proof-btn"
                             onClick={clearProof}
@@ -1091,10 +1287,10 @@ function CustomerDashboard({ user, onLogout }) {
                         </div>
                       ) : (
                         <div className="file-upload-wrapper">
-                          <input 
+                          <input
                             id="gcash-proof-input"
-                            type="file" 
-                            accept="image/*" 
+                            type="file"
+                            accept="image/*"
                             className="file-input"
                             onChange={handleGcashProofSelect}
                           />
@@ -1120,7 +1316,7 @@ function CustomerDashboard({ user, onLogout }) {
                   </div>
                 </div>
 
-                <button 
+                <button
                   className={`checkout-btn ${!gcashProof ? 'disabled' : ''}`}
                   disabled={cart.length === 0 || !gcashProof || orderLoading}
                   onClick={handleCheckout}
@@ -1151,8 +1347,18 @@ function CustomerDashboard({ user, onLogout }) {
         <div className="orders-view">
           <div className="orders-header">
             <h2>Order History</h2>
-            <span className="order-count">{orders.length} orders</span>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={refreshOrders}
+                title="Refresh orders"
+              >
+                🔄 Refresh
+              </button>
+              <span className="order-count">{orders.length} orders</span>
+            </div>
           </div>
+
           {orders.length === 0 ? (
             <div className="empty-state">
               <div className="empty-icon">📝</div>
@@ -1216,7 +1422,7 @@ function CustomerDashboard({ user, onLogout }) {
                       </div>
                     </div>
 
-                    <button 
+                    <button
                       className="toggle-details-btn"
                       onClick={() => setExpandedOrder(isExpanded ? null : order.id)}
                     >
@@ -1301,7 +1507,7 @@ function CustomerDashboard({ user, onLogout }) {
                           <div className="detail-block">
                             <h4 className="detail-block-title">📸 Payment Proof</h4>
                             <div className="proof-thumbnail-container">
-                              <div 
+                              <div
                                 className="proof-thumbnail"
                                 onClick={() => setViewingReceipt(order.proof_image_url)}
                               >
@@ -1319,7 +1525,7 @@ function CustomerDashboard({ user, onLogout }) {
                     )}
 
                     {order.status === 'pending' && (
-                      <button 
+                      <button
                         className="cancel-order-btn"
                         onClick={() => cancelOrder(order)}
                         disabled={cancellingOrder === order.id}
@@ -1329,50 +1535,50 @@ function CustomerDashboard({ user, onLogout }) {
                     )}
 
                     {!order.reviews && reviewForm.orderId !== order.id && order.status === 'completed' && (
-                      <button 
+                      <button
                         className="write-review-btn"
                         onClick={() => setReviewForm({ orderId: order.id, rating: 5, text: '' })}
                       >
                         ✍️ Write a Review
                       </button>
                     )}
-                    
+
                     {!order.reviews && reviewForm.orderId === order.id && (
                       <div className="review-section">
                         <h4>Rate Your Experience</h4>
                         <div className="star-rating">
                           {[1, 2, 3, 4, 5].map(star => (
-                            <span 
-                              key={star} 
+                            <span
+                              key={star}
                               className={`star ${star <= reviewForm.rating ? 'active' : ''}`}
-                              onClick={() => setReviewForm({...reviewForm, rating: star})}
+                              onClick={() => setReviewForm({ ...reviewForm, rating: star })}
                             >
                               ★
                             </span>
                           ))}
                         </div>
-                        <textarea 
+                        <textarea
                           className="review-input"
                           placeholder="Would you recommend this coffee? Share your thoughts..."
                           maxLength={300}
                           value={reviewForm.text}
-                          onChange={(e) => setReviewForm({...reviewForm, text: e.target.value})}
+                          onChange={(e) => setReviewForm({ ...reviewForm, text: e.target.value })}
                         />
                         <div className="review-char-count">{reviewForm.text.length} / 300</div>
                         <div className="review-actions">
                           <button className="submit-review-btn" onClick={() => submitReview(order.id)}>
                             Submit Review
                           </button>
-                          <button 
+                          <button
                             className="cancel-review-btn"
-                            onClick={() => setReviewForm({orderId: null, rating: 5, text: ''})}
+                            onClick={() => setReviewForm({ orderId: null, rating: 5, text: '' })}
                           >
                             Cancel
                           </button>
                         </div>
                       </div>
                     )}
-                    
+
                     {order.reviews && (
                       <div className="review-display">
                         <div className="review-stars">
@@ -1435,7 +1641,7 @@ function CustomerDashboard({ user, onLogout }) {
                       <input
                         type="text"
                         value={profile.name}
-                        onChange={(e) => setProfile({...profile, name: e.target.value})}
+                        onChange={(e) => setProfile({ ...profile, name: e.target.value })}
                         placeholder="Enter your full name"
                         required
                       />
@@ -1446,12 +1652,12 @@ function CustomerDashboard({ user, onLogout }) {
                       <span className="input-hint">Email cannot be changed</span>
                     </div>
                     <div className="profile-actions">
-                      <button 
+                      <button
                         type="button"
                         className="btn-cancel"
                         onClick={() => {
                           setIsEditingProfile(false);
-                          setProfile({...profile, name: user?.name || ''});
+                          setProfile({ ...profile, name: user?.name || '' });
                         }}
                       >
                         Cancel
@@ -1498,7 +1704,7 @@ function CustomerDashboard({ user, onLogout }) {
                     <input
                       type="password"
                       value={passwordData.currentPassword}
-                      onChange={(e) => setPasswordData({...passwordData, currentPassword: e.target.value})}
+                      onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
                       placeholder="Enter current password"
                       required
                     />
@@ -1508,7 +1714,7 @@ function CustomerDashboard({ user, onLogout }) {
                     <input
                       type="password"
                       value={passwordData.newPassword}
-                      onChange={(e) => setPasswordData({...passwordData, newPassword: e.target.value})}
+                      onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
                       placeholder="Min 6 characters"
                       required
                       minLength={6}
@@ -1519,7 +1725,7 @@ function CustomerDashboard({ user, onLogout }) {
                     <input
                       type="password"
                       value={passwordData.confirmPassword}
-                      onChange={(e) => setPasswordData({...passwordData, confirmPassword: e.target.value})}
+                      onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
                       placeholder="Confirm new password"
                       required
                       minLength={6}
