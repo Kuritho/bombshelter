@@ -1,5 +1,6 @@
 // src/components/CustomerDashboard.js
 import React, { useState, useEffect } from 'react';
+import { createWorker } from 'tesseract.js';
 import { supabase } from '../supabaseClient';
 import {
   useMenuItems,
@@ -209,6 +210,90 @@ const getPaymentStatusInfo = (status) => {
   }
 };
 
+// Flexible parser for common GCash / Maya receipt layouts. OCR is advisory only.
+const parsePaymentReceiptText = (rawText) => {
+  const normalized = String(rawText || '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[\t ]+/g, ' ')
+    .replace(/\r/g, '\n')
+    .replace(/\n{2,}/g, '\n')
+    .trim();
+  const lines = normalized.split('\n').map(line => line.trim()).filter(Boolean);
+  const compact = normalized.replace(/\n/g, ' ');
+  const amountPattern = /(?:PHP|₱|\bP\.?\s*)\s*([0-9][0-9,]*(?:\.\d{1,2})?)/gi;
+  const currencyAmounts = [...compact.matchAll(amountPattern)]
+    .map(match => Number(match[1].replace(/,/g, '')))
+    .filter(value => Number.isFinite(value) && value > 0);
+  const labeledAmount = compact.match(/(?:amount(?:\s+(?:sent|paid|transferred|received))?|total\s+amount|amount\s+of|payment\s+amount|you\s+sent|sent\s+amount)\s*[:\-]?\s*(?:PHP|₱|\bP\.?\s*)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)/i);
+  const totalAmount = compact.match(/\btotal\s*[:\-]?\s*(?:PHP|₱|\bP\.?\s*)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)/i);
+  let amount = null;
+  const amountCandidate = labeledAmount || totalAmount;
+  if (amountCandidate) {
+    const parsed = Number(amountCandidate[1].replace(/,/g, ''));
+    if (Number.isFinite(parsed) && parsed > 0) amount = parsed;
+  } else if (currencyAmounts.length) amount = currencyAmounts[0];
+
+  // Reference labels often appear on one line and the value on the next.
+  let reference = '';
+  const refLabel = /(?:reference(?:\s*(?:number|no\.?|#))?|ref\.?\s*(?:number|no\.?|#)?|transaction\s*(?:id|number|no\.?|#)|txn\.?\s*(?:id|no\.?|#)|trace\s*(?:id|number|no\.?|#))/i;
+  for (let i = 0; i < lines.length && !reference; i++) {
+    if (!refLabel.test(lines[i])) continue;
+    let candidate = lines[i].replace(refLabel, '').replace(/^\s*(?:number|no\.?|id|#)?\s*[:#\-]?\s*/i, '').trim();
+    if (!candidate && lines[i + 1]) candidate = lines[i + 1].trim();
+    candidate = candidate.replace(/^(?:number|no\.?|id|#)\s*[:#\-]?\s*/i, '').trim();
+    const token = candidate.match(/[A-Z0-9][A-Z0-9\-]{3,}/i);
+    if (token && !/^(reference|transaction|number|success|completed|payment)$/i.test(token[0])) reference = token[0].replace(/[.,:;]+$/, '');
+  }
+  if (!reference) {
+    const fallbackRef = compact.match(/\b(?:reference|ref|transaction|txn|trace)\s*(?:number|no\.?|id|#)?\s*[:#\-]?\s*([A-Z0-9][A-Z0-9\-]{5,})/i);
+    if (fallbackRef) reference = fallbackRef[1].replace(/[.,:;]+$/, '');
+  }
+
+  let accountName = '';
+  const nameLabels = /(?:account\s*(?:holder\s*)?name|sender\s*name|sender|paid\s*by|sent\s*by|from\s*name|transfer\s*from|account\s*holder|\bfrom)\s*[:\-]?\s*/i;
+  for (let i = 0; i < lines.length && !accountName; i++) {
+    if (!nameLabels.test(lines[i])) continue;
+    let candidate = lines[i].replace(nameLabels, '').trim();
+    if (!candidate && lines[i + 1]) candidate = lines[i + 1].trim();
+    candidate = candidate.replace(/\s{2,}/g, ' ').replace(/[|•]+$/g, '').trim();
+    if (candidate && candidate.length >= 2 && !/^(date|time|amount|reference|transaction|successful|completed|details)$/i.test(candidate)) accountName = candidate.slice(0, 100);
+  }
+
+  const dateRegex = /\b((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[a-z]*\s+\d{1,2}(?:,?\s+\d{4})?|\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}|\d{4}[\/\-.]\d{1,2}[\/\-.]\d{1,2})\b/i;
+  let transactionDate = '';
+  for (let i = 0; i < lines.length && !transactionDate; i++) {
+    if (/\b(date|transaction date|paid on|sent on|completed on)\b/i.test(lines[i])) {
+      const match = lines[i].match(dateRegex) || (lines[i + 1] || '').match(dateRegex);
+      if (match) transactionDate = match[1];
+    }
+  }
+  if (!transactionDate) {
+    const match = normalized.match(dateRegex);
+    if (match) transactionDate = match[1];
+  }
+  return { text: normalized, amount, reference, accountName, transactionDate };
+};
+
+// Try two Tesseract page layouts because mobile-wallet receipts vary widely.
+// Keep the result that yields the most recognizable fields and useful text.
+const recognizePaymentReceipt = async (worker, image) => {
+  const candidates = [];
+  for (const pageSegMode of ['6', '11']) {
+    try {
+      if (worker.setParameters) await worker.setParameters({ tessedit_pageseg_mode: pageSegMode });
+    } catch (parameterError) {
+      console.debug('Could not set Tesseract page segmentation mode:', parameterError);
+    }
+    const { data } = await worker.recognize(image);
+    const parsed = parsePaymentReceiptText(data?.text || '');
+    const fieldCount = [parsed.amount != null, !!parsed.reference, !!parsed.accountName, !!parsed.transactionDate].filter(Boolean).length;
+    const score = fieldCount * 1000 + Math.min(parsed.text.length, 999);
+    candidates.push({ parsed, score });
+  }
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0]?.parsed || parsePaymentReceiptText('');
+};
+
 // ============================================
 // CONFIRMATION MODAL
 // ============================================
@@ -281,6 +366,9 @@ function CustomerDashboard({ user, onLogout }) {
   const [paymentMethod, setPaymentMethod] = useState('gcash');
   const [gcashProof, setGcashProof] = useState(null);
   const [gcashProofPreview, setGcashProofPreview] = useState(null);
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [ocrResult, setOcrResult] = useState({ text: '', amount: null, reference: '', accountName: '', transactionDate: '' });
+  const [ocrError, setOcrError] = useState('');
   const [reviewForm, setReviewForm] = useState({ orderId: null, rating: 5, text: '' });
   const [orderLoading, setOrderLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -358,28 +446,40 @@ function CustomerDashboard({ user, onLogout }) {
   // ============================================
   // FILE HANDLERS
   // ============================================
-  const handleGcashProofSelect = (e) => {
+  const handleGcashProofSelect = async (e) => {
     const file = e.target.files[0];
-    if (file) {
-      const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-      if (!validTypes.includes(file.type)) {
-        alert('Please select a valid image file (JPG, PNG, WEBP, or GIF)');
-        e.target.value = '';
-        return;
-      }
-      if (file.size > 5 * 1024 * 1024) {
-        alert('Image size must be less than 5MB');
-        e.target.value = '';
-        return;
-      }
+    if (!file) return;
 
-      if (gcashProofPreview?.startsWith('blob:')) {
-        URL.revokeObjectURL(gcashProofPreview);
-      }
+    const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (!validTypes.includes(file.type)) {
+      alert('Please select a valid image file (JPG, PNG, WEBP, or GIF)');
+      e.target.value = '';
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Image size must be less than 5MB');
+      e.target.value = '';
+      return;
+    }
 
-      setGcashProof(file);
-      const blobUrl = URL.createObjectURL(file);
-      setGcashProofPreview(blobUrl);
+    if (gcashProofPreview?.startsWith('blob:')) URL.revokeObjectURL(gcashProofPreview);
+    setGcashProof(file);
+    setGcashProofPreview(URL.createObjectURL(file));
+    setOcrResult({ text: '', amount: null, reference: '', accountName: '', transactionDate: '' });
+    setOcrError('');
+    setOcrLoading(true);
+
+    let worker;
+    try {
+      worker = await createWorker('eng');
+      const extracted = await recognizePaymentReceipt(worker, file);
+      setOcrResult(extracted);
+    } catch (err) {
+      console.error('Payment receipt OCR failed:', err);
+      setOcrError('Could not read the screenshot automatically. Please ensure the receipt is clear; you can still submit it for manual review.');
+    } finally {
+      if (worker) await worker.terminate();
+      setOcrLoading(false);
     }
   };
 
@@ -389,6 +489,9 @@ function CustomerDashboard({ user, onLogout }) {
     }
     setGcashProof(null);
     setGcashProofPreview(null);
+    setOcrResult({ text: '', amount: null, reference: '', accountName: '', transactionDate: '' });
+    setOcrError('');
+    setOcrLoading(false);
     const fileInput = document.getElementById('gcash-proof-input');
     if (fileInput) fileInput.value = '';
   };
@@ -631,6 +734,7 @@ function CustomerDashboard({ user, onLogout }) {
         setError(null);
         setOrderLoading(true);
 
+        let ocrSaveWarning = false;
         try {
           // --------------------------------------------
           // STEP 1: Upload proof
@@ -672,6 +776,26 @@ function CustomerDashboard({ user, onLogout }) {
             alert('Failed to create order: ' + (orderError.message || 'Please try again.'));
             setOrderLoading(false);
             return;
+          }
+
+          // Save OCR separately so a missing/not-yet-migrated OCR column cannot block checkout.
+          // Run the supplied Supabase migration to enable these values to persist.
+          const ocrUpdate = {
+            ocr_detected_amount: ocrResult.amount,
+            ocr_reference_number: ocrResult.reference || null,
+            ocr_account_name: ocrResult.accountName || null,
+            ocr_transaction_date: ocrResult.transactionDate || null,
+            ocr_extracted_text: ocrResult.text || null
+          };
+          try {
+            const { error: ocrUpdateError } = await supabase
+              .from('orders')
+              .update(ocrUpdate)
+              .eq('id', newOrder.id);
+            if (ocrUpdateError) throw ocrUpdateError;
+          } catch (ocrUpdateError) {
+            ocrSaveWarning = true;
+            console.warn('Order was created, but OCR fields could not be saved. Run the Supabase OCR migration:', ocrUpdateError.message);
           }
 
           // --------------------------------------------
@@ -717,7 +841,7 @@ function CustomerDashboard({ user, onLogout }) {
           setActiveTab('orders');
 
           closeConfirm();
-          alert(`✅ Order placed successfully!\nOrder #: ${newOrder.order_number || newOrder.id.slice(0, 8)}`);
+          alert(`✅ Order placed successfully!\nOrder #: ${newOrder.order_number || newOrder.id.slice(0, 8)}${ocrSaveWarning ? '\n\n⚠️ Your order was saved, but OCR details were not saved. Please ask the administrator to run the Supabase OCR migration.' : ''}`);
         } catch (error) {
           console.error('❌ Unexpected checkout error:', error);
           setConfirmModal(prev => ({ ...prev, isLoading: false }));
@@ -1299,6 +1423,35 @@ function CustomerDashboard({ user, onLogout }) {
                             <span>Click to upload screenshot</span>
                             <span className="upload-hint">JPG, PNG, WEBP (Max 5MB)</span>
                           </div>
+                        </div>
+                      )}
+                      {gcashProof && (
+                        <div className="payment-ocr-panel" aria-live="polite">
+                          <strong>Receipt OCR extraction</strong>
+                          {ocrLoading ? (
+                            <p>Reading receipt text… This may take a few seconds.</p>
+                          ) : ocrError ? (
+                            <p className="payment-ocr-warning">{ocrError}</p>
+                          ) : ocrResult.text ? (
+                            <>
+                              <div className="payment-ocr-fields">
+                                <div><span>Detected amount</span><strong>{ocrResult.amount !== null ? `₱${ocrResult.amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'Not detected'}</strong></div>
+                                <div><span>Reference / transaction no.</span><strong>{ocrResult.reference || 'Not detected'}</strong></div>
+                                <div><span>Account / sender name</span><strong>{ocrResult.accountName || 'Not detected'}</strong></div>
+                                <div><span>Transaction date</span><strong>{ocrResult.transactionDate || 'Not detected'}</strong></div>
+                              </div>
+                              {ocrResult.amount !== null && Math.abs(ocrResult.amount - Number(cartTotal)) > 0.009 && (
+                                <p className="payment-ocr-warning">Detected amount differs from your order total (₱{Number(cartTotal).toFixed(2)}). Please check the receipt.</p>
+                              )}
+                              <details className="payment-ocr-details">
+                                <summary>View extracted text</summary>
+                                <pre>{ocrResult.text}</pre>
+                              </details>
+                              <p className="payment-ocr-disclaimer">OCR can make mistakes. The receipt and payment must still be verified by staff.</p>
+                            </>
+                          ) : (
+                            <p>OCR extraction has not returned text. Please review the screenshot manually.</p>
+                          )}
                         </div>
                       )}
                     </div>
