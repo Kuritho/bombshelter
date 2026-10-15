@@ -1267,3 +1267,22 @@
 .employee-menu-empty h3 { margin: 0 0 .5rem; color: #fff; }
 .employee-menu-empty p { margin: 0; }
 @media (max-width: 640px) { .employee-menu-view { padding: 1rem; } .employee-menu-heading { align-items: flex-start; flex-direction: column; padding: 1.2rem; } .employee-menu-grid { grid-template-columns: 1fr; } .employee-menu-image { height: 200px; } }
+
+
+/* Top best-selling products */
+.employee-best-sellers { margin: 0 2rem 1.5rem; padding: 1.35rem; border-radius: 18px; border: 1px solid rgba(255,255,255,.09); background: linear-gradient(135deg, rgba(217,119,69,.10), rgba(255,255,255,.025)); color: #f8fafc; }
+.employee-best-sellers-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+.employee-best-sellers-eyebrow { color: #d97745; font-size: .7rem; font-weight: 800; letter-spacing: .14em; }
+.employee-best-sellers-heading h2 { margin: .25rem 0; font-size: 1.2rem; }
+.employee-best-sellers-heading p { margin: 0; color: #94a3b8; font-size: .85rem; }
+.employee-best-sellers-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .85rem; }
+.employee-best-seller-card { display: grid; grid-template-columns: auto auto minmax(0,1fr); align-items: center; gap: .7rem; padding: .95rem; background: rgba(15,23,42,.7); border: 1px solid rgba(255,255,255,.07); border-radius: 13px; }
+.employee-best-seller-rank { color: #d97745; font-weight: 800; font-size: .85rem; }
+.employee-best-seller-icon { font-size: 1.6rem; }
+.employee-best-seller-info { min-width: 0; }
+.employee-best-seller-info h3 { margin: 0; font-size: .92rem; overflow-wrap: anywhere; }
+.employee-best-seller-info p { margin: .25rem 0 0; color: #94a3b8; font-size: .76rem; }
+.employee-best-seller-card > strong { grid-column: 3; color: #fbbf24; font-size: .85rem; }
+.employee-best-sellers-empty { padding: 1rem; border-radius: 12px; background: rgba(15,23,42,.45); color: #94a3b8; font-size: .9rem; }
+@media (max-width: 900px) { .employee-best-sellers-grid { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .employee-best-sellers { margin: 0 1rem 1rem; padding: 1rem; } .employee-best-seller-card { grid-template-columns: auto auto minmax(0,1fr); } }
