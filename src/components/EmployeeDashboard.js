@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createWorker } from 'tesseract.js';
 import { supabase } from '../supabaseClient';
 import { useOrders } from '../hooks/useSupabase';
 import './EmployeeDashboard.css';
@@ -140,11 +141,96 @@ function ConfirmModal({
   );
 }
 
+// Flexible parser for common GCash / Maya receipt layouts. OCR is advisory only.
+const parsePaymentReceiptText = (rawText) => {
+  const normalized = String(rawText || '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[\t ]+/g, ' ')
+    .replace(/\r/g, '\n')
+    .replace(/\n{2,}/g, '\n')
+    .trim();
+  const lines = normalized.split('\n').map(line => line.trim()).filter(Boolean);
+  const compact = normalized.replace(/\n/g, ' ');
+  const amountPattern = /(?:PHP|₱|\bP\.?\s*)\s*([0-9][0-9,]*(?:\.\d{1,2})?)/gi;
+  const currencyAmounts = [...compact.matchAll(amountPattern)]
+    .map(match => Number(match[1].replace(/,/g, '')))
+    .filter(value => Number.isFinite(value) && value > 0);
+  const labeledAmount = compact.match(/(?:amount(?:\s+(?:sent|paid|transferred|received))?|total\s+amount|amount\s+of|payment\s+amount|you\s+sent|sent\s+amount)\s*[:\-]?\s*(?:PHP|₱|\bP\.?\s*)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)/i);
+  const totalAmount = compact.match(/\btotal\s*[:\-]?\s*(?:PHP|₱|\bP\.?\s*)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)/i);
+  let amount = null;
+  const amountCandidate = labeledAmount || totalAmount;
+  if (amountCandidate) {
+    const parsed = Number(amountCandidate[1].replace(/,/g, ''));
+    if (Number.isFinite(parsed) && parsed > 0) amount = parsed;
+  } else if (currencyAmounts.length) amount = currencyAmounts[0];
+
+  // Reference labels often appear on one line and the value on the next.
+  let reference = '';
+  const refLabel = /(?:reference(?:\s*(?:number|no\.?|#))?|ref\.?\s*(?:number|no\.?|#)?|transaction\s*(?:id|number|no\.?|#)|txn\.?\s*(?:id|no\.?|#)|trace\s*(?:id|number|no\.?|#))/i;
+  for (let i = 0; i < lines.length && !reference; i++) {
+    if (!refLabel.test(lines[i])) continue;
+    let candidate = lines[i].replace(refLabel, '').replace(/^\s*(?:number|no\.?|id|#)?\s*[:#\-]?\s*/i, '').trim();
+    if (!candidate && lines[i + 1]) candidate = lines[i + 1].trim();
+    candidate = candidate.replace(/^(?:number|no\.?|id|#)\s*[:#\-]?\s*/i, '').trim();
+    const token = candidate.match(/[A-Z0-9][A-Z0-9\-]{3,}/i);
+    if (token && !/^(reference|transaction|number|success|completed|payment)$/i.test(token[0])) reference = token[0].replace(/[.,:;]+$/, '');
+  }
+  if (!reference) {
+    const fallbackRef = compact.match(/\b(?:reference|ref|transaction|txn|trace)\s*(?:number|no\.?|id|#)?\s*[:#\-]?\s*([A-Z0-9][A-Z0-9\-]{5,})/i);
+    if (fallbackRef) reference = fallbackRef[1].replace(/[.,:;]+$/, '');
+  }
+
+  let accountName = '';
+  const nameLabels = /(?:account\s*(?:holder\s*)?name|sender\s*name|sender|paid\s*by|sent\s*by|from\s*name|transfer\s*from|account\s*holder|\bfrom)\s*[:\-]?\s*/i;
+  for (let i = 0; i < lines.length && !accountName; i++) {
+    if (!nameLabels.test(lines[i])) continue;
+    let candidate = lines[i].replace(nameLabels, '').trim();
+    if (!candidate && lines[i + 1]) candidate = lines[i + 1].trim();
+    candidate = candidate.replace(/\s{2,}/g, ' ').replace(/[|•]+$/g, '').trim();
+    if (candidate && candidate.length >= 2 && !/^(date|time|amount|reference|transaction|successful|completed|details)$/i.test(candidate)) accountName = candidate.slice(0, 100);
+  }
+
+  const dateRegex = /\b((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[a-z]*\s+\d{1,2}(?:,?\s+\d{4})?|\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}|\d{4}[\/\-.]\d{1,2}[\/\-.]\d{1,2})\b/i;
+  let transactionDate = '';
+  for (let i = 0; i < lines.length && !transactionDate; i++) {
+    if (/\b(date|transaction date|paid on|sent on|completed on)\b/i.test(lines[i])) {
+      const match = lines[i].match(dateRegex) || (lines[i + 1] || '').match(dateRegex);
+      if (match) transactionDate = match[1];
+    }
+  }
+  if (!transactionDate) {
+    const match = normalized.match(dateRegex);
+    if (match) transactionDate = match[1];
+  }
+  return { text: normalized, amount, reference, accountName, transactionDate };
+};
+
+// Try two Tesseract page layouts because mobile-wallet receipts vary widely.
+// Keep the result that yields the most recognizable fields and useful text.
+const recognizePaymentReceipt = async (worker, image) => {
+  const candidates = [];
+  for (const pageSegMode of ['6', '11']) {
+    try {
+      if (worker.setParameters) await worker.setParameters({ tessedit_pageseg_mode: pageSegMode });
+    } catch (parameterError) {
+      console.debug('Could not set Tesseract page segmentation mode:', parameterError);
+    }
+    const { data } = await worker.recognize(image);
+    const parsed = parsePaymentReceiptText(data?.text || '');
+    const fieldCount = [parsed.amount != null, !!parsed.reference, !!parsed.accountName, !!parsed.transactionDate].filter(Boolean).length;
+    const score = fieldCount * 1000 + Math.min(parsed.text.length, 999);
+    candidates.push({ parsed, score });
+  }
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0]?.parsed || parsePaymentReceiptText('');
+};
+
 // ============================================
 // MAIN COMPONENT
 // ============================================
 function EmployeeDashboard({ user, onLogout }) {
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [ocrLoadingOrderId, setOcrLoadingOrderId] = useState(null);
   const [notification, setNotification] = useState(null);
   const [notificationType, setNotificationType] = useState('info');
   const [activeTab, setActiveTab] = useState('orders');
@@ -334,23 +420,85 @@ function EmployeeDashboard({ user, onLogout }) {
     });
   };
 
+  const downloadOcrReport = (order) => {
+    const report = [
+      'PAYMENT RECEIPT OCR REPORT',
+      `Order: ${order.order_number || order.id}`,
+      `Customer: ${order.users?.name || 'Unknown'}`,
+      `Order total: PHP ${Number(order.total_amount || 0).toFixed(2)}`,
+      `Payment method: ${order.payment_method || 'Unknown'}`,
+      `Detected amount: ${order.ocr_detected_amount != null ? `PHP ${Number(order.ocr_detected_amount).toFixed(2)}` : 'Not detected'}`,
+      `Reference / transaction number: ${order.ocr_reference_number || 'Not detected'}`,
+      `Account / sender name: ${order.ocr_account_name || 'Not detected'}`,
+      `Transaction date: ${order.ocr_transaction_date || 'Not detected'}`,
+      `Payment decision: ${order.payment_status || 'unverified'}`,
+      `Generated at: ${new Date().toLocaleString()}`,
+      '',
+      'FULL EXTRACTED TEXT',
+      order.ocr_extracted_text || 'No OCR text is saved for this order.',
+      '',
+      'NOTE: OCR results are estimates only. This report is not proof that a payment was made. Verify the original receipt and transaction manually.'
+    ].join('\n');
+    const blob = new Blob([report], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `payment-ocr-${String(order.order_number || order.id).replace(/[^a-z0-9_-]/gi, '_')}.txt`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const runOcrForSelectedOrder = async (order) => {
+    if (!order?.proof_image_url) return;
+    setOcrLoadingOrderId(order.id);
+    let worker;
+    try {
+      const response = await fetch(order.proof_image_url, { mode: 'cors' });
+      if (!response.ok) throw new Error(`Could not load receipt image (HTTP ${response.status}).`);
+      const imageBlob = await response.blob();
+      worker = await createWorker('eng');
+      const extracted = await recognizePaymentReceipt(worker, imageBlob);
+      const update = {
+        ocr_detected_amount: extracted.amount,
+        ocr_reference_number: extracted.reference || null,
+        ocr_account_name: extracted.accountName || null,
+        ocr_transaction_date: extracted.transactionDate || null,
+        ocr_extracted_text: extracted.text || null
+      };
+      const { error } = await supabase.from('orders').update(update).eq('id', order.id);
+      if (error) throw error;
+      const updatedOrder = { ...order, ...update };
+      setSelectedOrder(updatedOrder);
+      await refreshOrders();
+      setNotificationType('success');
+      setNotification(extracted.text ? 'OCR extraction updated. Please review the results manually.' : 'OCR could not read text from this image. Please inspect the receipt manually.');
+      setTimeout(() => setNotification(null), 4500);
+    } catch (error) {
+      console.error('Employee receipt OCR failed:', error);
+      alert(`Could not run OCR on this receipt. ${error.message || 'Check the image URL, network, and Supabase Storage CORS settings.'}`);
+    } finally {
+      if (worker) await worker.terminate();
+      setOcrLoadingOrderId(null);
+    }
+  };
+
   // ============================================
   // PAYMENT STATUS — WITH CONFIRMATION
   // ============================================
   const handleUpdatePaymentStatus = (orderId, status) => {
-    const statusLabels = {
-      valid: 'Verified',
-      underpayment: 'Underpaid',
-      overpayment: 'Overpaid'
-    };
+    const statusLabels = { confirmed: 'Accept', rejected: 'Reject' };
     const label = statusLabels[status] || status;
 
     openConfirm({
-      title: `Mark Payment as ${label}?`,
-      message: `Are you sure you want to mark this payment as "${label}"? The customer will see this update.`,
-      confirmText: `Yes, Mark as ${label}`,
+      title: `${label} Payment?`,
+      message: status === 'confirmed'
+        ? 'Accept this payment after checking the original receipt and transaction in the payment app?'
+        : 'Reject this payment? The customer will see that the payment was rejected.',
+      confirmText: `Yes, ${label}`,
       cancelText: 'No, Cancel',
-      variant: status === 'valid' ? 'warning' : 'danger',
+      variant: status === 'confirmed' ? 'warning' : 'danger',
       onConfirm: async () => {
         setConfirmModal(prev => ({ ...prev, isLoading: true }));
         
@@ -449,10 +597,9 @@ function EmployeeDashboard({ user, onLogout }) {
       <div className="order-card-footer">
         <span className="order-total">₱{order.total_amount}</span>
         <span className={`payment-status-badge ${order.payment_status}`}>
-          {order.payment_status === 'valid' && '✅ Verified'}
-          {order.payment_status === 'unverified' && '⏳ Pending'}
-          {order.payment_status === 'underpayment' && '⚠️ Underpaid'}
-          {order.payment_status === 'overpayment' && '⚠️ Overpaid'}
+          {(order.payment_status === 'confirmed' || order.payment_status === 'valid') && '✅ Accepted'}
+          {order.payment_status === 'rejected' && '❌ Rejected'}
+          {(order.payment_status === 'unverified' || order.payment_status === 'underpayment' || order.payment_status === 'overpayment' || !order.payment_status) && '⏳ Pending Review'}
         </span>
       </div>
     </div>
@@ -658,7 +805,11 @@ function EmployeeDashboard({ user, onLogout }) {
                       <div className="detail-row">
                         <span className="detail-label">Payment</span>
                         <span className={`payment-status-badge ${selectedOrder.payment_status}`}>
-                          {selectedOrder.payment_status}
+                          {selectedOrder.payment_status === 'confirmed' || selectedOrder.payment_status === 'valid'
+                            ? 'Accepted'
+                            : selectedOrder.payment_status === 'rejected'
+                              ? 'Rejected'
+                              : 'Pending Review'}
                         </span>
                       </div>
                       <div className="detail-row">
@@ -720,27 +871,86 @@ function EmployeeDashboard({ user, onLogout }) {
                           <p>No payment proof uploaded</p>
                         </div>
                       )}
+
+                      <div className="detail-section ocr-review-section" style={{ marginTop: '1rem' }}>
+                        <div className="section-header">
+                          <span className="section-icon">🔎</span>
+                          <h3>OCR Extraction (Review Manually)</h3>
+                        </div>
+                        <div className="detail-row">
+                          <span className="detail-label">Detected Amount</span>
+                          <span className="detail-value">
+                            {selectedOrder.ocr_detected_amount !== null && selectedOrder.ocr_detected_amount !== undefined
+                              ? `₱${Number(selectedOrder.ocr_detected_amount).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                              : 'Not detected'}
+                          </span>
+                        </div>
+                        <div className="detail-row">
+                          <span className="detail-label">Reference / Transaction No.</span>
+                          <span className="detail-value" style={{ overflowWrap: 'anywhere' }}>
+                            {selectedOrder.ocr_reference_number || 'Not detected'}
+                          </span>
+                        </div>
+                        <div className="detail-row">
+                          <span className="detail-label">Account / Sender Name</span>
+                          <span className="detail-value">{selectedOrder.ocr_account_name || 'Not detected'}</span>
+                        </div>
+                        <div className="detail-row">
+                          <span className="detail-label">Transaction Date</span>
+                          <span className="detail-value">{selectedOrder.ocr_transaction_date || 'Not detected'}</span>
+                        </div>
+                        {selectedOrder.ocr_detected_amount !== null && selectedOrder.ocr_detected_amount !== undefined &&
+                          Math.abs(Number(selectedOrder.ocr_detected_amount) - Number(selectedOrder.total_amount)) > 0.009 && (
+                            <p style={{ color: '#fbbf24', margin: '0.5rem 0', lineHeight: 1.5 }}>
+                              ⚠️ OCR amount differs from the order total. Check the original receipt.
+                            </p>
+                          )}
+                        <details style={{ marginTop: '0.65rem' }}>
+                          <summary style={{ cursor: 'pointer' }}>View full extracted text</summary>
+                          <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: '220px', overflow: 'auto', fontSize: '0.8rem', marginTop: '0.5rem' }}>
+                            {selectedOrder.ocr_extracted_text || 'No OCR text was saved for this order.'}
+                          </pre>
+                        </details>
+                        <div className="ocr-tool-buttons">
+                          <button
+                            type="button"
+                            className="btn btn-ocr-download"
+                            onClick={() => downloadOcrReport(selectedOrder)}
+                          >
+                            ⬇ Download OCR Report (.txt)
+                          </button>
+                          {selectedOrder.proof_image_url && (
+                            <button
+                              type="button"
+                              className="btn btn-ocr-rerun"
+                              disabled={ocrLoadingOrderId === selectedOrder.id}
+                              onClick={() => runOcrForSelectedOrder(selectedOrder)}
+                            >
+                              {ocrLoadingOrderId === selectedOrder.id ? '⏳ Reading receipt…' : '🔄 Run OCR Again'}
+                            </button>
+                          )}
+                        </div>
+                        <p style={{ color: '#94a3b8', fontSize: '0.78rem', lineHeight: 1.5, marginTop: '0.65rem' }}>
+                          OCR can misread receipts and does not confirm that a transfer occurred. Verify the image and transaction manually before updating payment status.
+                        </p>
+                      </div>
                       
                       <div className="payment-actions">
-                        <h4>Verify Payment</h4>
-                        <div className="action-buttons">
-                          <button 
-                            className="btn btn-valid" 
-                            onClick={() => handleUpdatePaymentStatus(selectedOrder.id, 'valid')}
+                        <h4>Payment Decision</h4>
+                        <div className="action-buttons payment-decision-buttons">
+                          <button
+                            type="button"
+                            className="btn btn-accept"
+                            onClick={() => handleUpdatePaymentStatus(selectedOrder.id, 'confirmed')}
                           >
-                            ✅ Valid
+                            ✓ Accept
                           </button>
-                          <button 
-                            className="btn btn-under" 
-                            onClick={() => handleUpdatePaymentStatus(selectedOrder.id, 'underpayment')}
+                          <button
+                            type="button"
+                            className="btn btn-reject"
+                            onClick={() => handleUpdatePaymentStatus(selectedOrder.id, 'rejected')}
                           >
-                            ⚠️ Underpaid
-                          </button>
-                          <button 
-                            className="btn btn-over" 
-                            onClick={() => handleUpdatePaymentStatus(selectedOrder.id, 'overpayment')}
-                          >
-                            ⚠️ Overpaid
+                            ✕ Reject
                           </button>
                         </div>
                       </div>
@@ -755,14 +965,14 @@ function EmployeeDashboard({ user, onLogout }) {
                       {selectedOrder.status === 'pending' && (
                         <>
                           <div className="action-warning">
-                            {selectedOrder.payment_status !== 'valid' && (
-                              <p className="warning-text">⚠️ Payment must be verified as Valid before preparing.</p>
+                            {selectedOrder.payment_status !== 'confirmed' && selectedOrder.payment_status !== 'valid' && (
+                              <p className="warning-text">⚠️ Payment must be accepted before preparing.</p>
                             )}
                           </div>
                           <div className="order-actions">
                             <button 
                               className="btn btn-primary"
-                              disabled={selectedOrder.payment_status !== 'valid'}
+                              disabled={selectedOrder.payment_status !== 'confirmed' && selectedOrder.payment_status !== 'valid'}
                               onClick={() => handleUpdateOrderStatus(selectedOrder.id, 'preparing')}
                             >
                               📦 Start Preparing
