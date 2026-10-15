@@ -3049,3 +3049,24 @@
 .best-seller-meta .rating-count {
   font-size: 0.68rem;
 }
+
+/* Payment receipt OCR extraction */
+.payment-ocr-panel {
+  margin: 0.75rem 0 1rem;
+  padding: 1rem;
+  border: 1px solid rgba(255, 107, 53, 0.25);
+  border-radius: 12px;
+  background: rgba(255, 107, 53, 0.06);
+  color: #e2e8f0;
+  font-size: 0.85rem;
+}
+.payment-ocr-panel > strong { display: block; margin-bottom: 0.65rem; color: #ffb08e; }
+.payment-ocr-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.75rem; }
+.payment-ocr-fields > div { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.payment-ocr-fields span { color: #94a3b8; font-size: 0.78rem; }
+.payment-ocr-fields strong { overflow-wrap: anywhere; color: #f8fafc; }
+.payment-ocr-warning { margin-top: 0.65rem; color: #fbbf24; line-height: 1.5; }
+.payment-ocr-details { margin-top: 0.75rem; }
+.payment-ocr-details summary { cursor: pointer; color: #cbd5e1; }
+.payment-ocr-details pre { margin-top: 0.5rem; max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: #cbd5e1; font: 0.78rem/1.5 monospace; }
+.payment-ocr-disclaimer { margin-top: 0.65rem; color: #94a3b8; font-size: 0.76rem; line-height: 1.45; }
