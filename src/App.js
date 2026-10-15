@@ -14,21 +14,34 @@ function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Global flag: while true, App.js ignores ALL auth state changes.
-  // Used during signup AND sign-in to prevent premature redirects.
   const authInProgressRef = useRef(false);
+
+  // 🔒 When true, the auth listener is completely disabled.
+  //    Nothing — not signIn, not signOut, not token refresh —
+  //    can change the current user state.
+  const userLockedRef = useRef(false);
 
   useEffect(() => {
     window.__setAuthInProgress = (val) => {
       authInProgressRef.current = val;
-      console.log('🔒 authInProgress flag set to:', val);
     };
-    // Backward compat for the signup flow that calls __setSigningUp
     window.__setSigningUp = window.__setAuthInProgress;
+
+    // 🔒 Lock controls exposed to hooks
+    window.__lockUser = () => {
+      userLockedRef.current = true;
+      console.log('🔒 User locked — auth listener disabled');
+    };
+    window.__unlockUser = () => {
+      userLockedRef.current = false;
+      console.log('🔓 User unlocked — auth listener enabled');
+    };
 
     return () => {
       delete window.__setAuthInProgress;
       delete window.__setSigningUp;
+      delete window.__lockUser;
+      delete window.__unlockUser;
     };
   }, []);
 
@@ -38,6 +51,12 @@ function App() {
         const { data: { session } } = await supabase.auth.getSession();
 
         if (session && session.user) {
+          if (!session.user.email_confirmed_at) {
+            console.warn('⚠️ Unverified email in session — signing out');
+            await supabase.auth.signOut();
+            return;
+          }
+
           const { data: userData, error: userError } = await supabase
             .from('users')
             .select('*')
@@ -63,15 +82,25 @@ function App() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('Auth state changed:', event, session);
-
-        // 🔒 Ignore all auth events while the login/signup flow is running
+        // 🛑 1. Ignore during login flow
         if (authInProgressRef.current) {
           console.log('🚫 Ignoring auth event during login flow:', event);
           return;
         }
 
+        // 🛑 2. HARD LOCK — nothing gets through
+        if (userLockedRef.current) {
+          console.log('🔒 Ignoring auth event — user is locked:', event);
+          return;
+        }
+
         if (session && session.user) {
+          if (!session.user.email_confirmed_at) {
+            console.warn('⚠️ Unverified — signing out');
+            await supabase.auth.signOut();
+            return;
+          }
+
           const { data: userData, error } = await supabase
             .from('users')
             .select('*')
@@ -95,9 +124,7 @@ function App() {
       }
     );
 
-    return () => {
-      subscription.unsubscribe();
-    };
+    return () => subscription.unsubscribe();
   }, []);
 
   const handleLogin = (role, userData) => {
@@ -109,6 +136,8 @@ function App() {
   };
 
   const handleLogout = async () => {
+    // Unlock before signing out, otherwise the listener ignores SIGNED_OUT
+    userLockedRef.current = false;
     await supabase.auth.signOut();
     setIsAuthenticated(false);
     setUserRole(null);
@@ -125,45 +154,45 @@ function App() {
     <Router>
       <div className="App">
         <Routes>
-          <Route 
-            path="/" 
+          <Route
+            path="/"
             element={
               !isAuthenticated ? (
                 <Login onLogin={handleLogin} />
               ) : (
                 <Navigate to={`/${userRole}`} />
               )
-            } 
+            }
           />
-          <Route 
-            path="/customer" 
+          <Route
+            path="/customer"
             element={
               isAuthenticated && userRole === 'customer' ? (
                 <CustomerDashboard user={currentUser} onLogout={handleLogout} />
               ) : (
                 <Navigate to="/" />
               )
-            } 
+            }
           />
-          <Route 
-            path="/employee" 
+          <Route
+            path="/employee"
             element={
               isAuthenticated && userRole === 'employee' ? (
                 <EmployeeDashboard user={currentUser} onLogout={handleLogout} />
               ) : (
                 <Navigate to="/" />
               )
-            } 
+            }
           />
-          <Route 
-            path="/owner" 
+          <Route
+            path="/owner"
             element={
               isAuthenticated && userRole === 'owner' ? (
                 <OwnerDashboard user={currentUser} onLogout={handleLogout} />
               ) : (
                 <Navigate to="/" />
               )
-            } 
+            }
           />
         </Routes>
       </div>
