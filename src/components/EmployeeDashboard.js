@@ -576,6 +576,20 @@ function EmployeeDashboard({ user, onLogout }) {
     return orders.filter(o => o.status === status).length;
   };
 
+  // Best sellers are calculated from completed orders only.
+  const employeeBestSellers = (() => {
+    const totals = {};
+    orders.filter(order => order.status === 'completed').forEach(order => {
+      (order.order_items || []).forEach(item => {
+        const product = item.menu_items || {};
+        const key = product.id || product.name || 'unknown';
+        if (!totals[key]) totals[key] = { name: product.name || 'Unknown item', category: product.type || product.category || 'Menu item', sales: 0 };
+        totals[key].sales += Number(item.quantity || 0);
+      });
+    });
+    return Object.values(totals).sort((a, b) => b.sales - a.sales).slice(0, 3);
+  })();
+
   const renderOrderCard = (order) => (
     <div key={order.id} className="order-card" onClick={() => setSelectedOrder(order)}>
       <div className="order-card-header">
@@ -783,6 +797,27 @@ function EmployeeDashboard({ user, onLogout }) {
               </div>
             </div>
           </div>
+
+          {/* Best-selling products */}
+          <section className="employee-best-sellers" aria-label="Top best-selling products">
+            <div className="employee-best-sellers-heading">
+              <div><span className="employee-best-sellers-eyebrow">SALES HIGHLIGHTS</span><h2>🏆 Top Best Sellers</h2><p>Ranked by quantity sold in completed orders.</p></div>
+            </div>
+            {employeeBestSellers.length === 0 ? (
+              <div className="employee-best-sellers-empty">No completed sales yet. Best sellers will appear here after orders are completed.</div>
+            ) : (
+              <div className="employee-best-sellers-grid">
+                {employeeBestSellers.map((product, index) => (
+                  <article className={`employee-best-seller-card rank-${index + 1}`} key={`${product.name}-${index}`}>
+                    <span className="employee-best-seller-rank">#{index + 1}</span>
+                    <div className="employee-best-seller-icon">{index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}</div>
+                    <div className="employee-best-seller-info"><h3>{product.name}</h3><p>{product.category}</p></div>
+                    <strong>{product.sales} sold</strong>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
 
           {/* Kanban Board */}
           <div className="kanban-board">
