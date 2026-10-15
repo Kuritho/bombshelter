@@ -1173,3 +1173,62 @@
   transform: translateY(-1px);
   box-shadow: 0 6px 20px rgba(239, 68, 68, 0.45);
 }
+/* OCR tools and explicit payment decisions */
+.ocr-tool-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.8rem;
+}
+
+.btn-ocr-download,
+.btn-ocr-rerun {
+  background: rgba(148, 163, 184, 0.12);
+  color: #e2e8f0;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+}
+
+.btn-ocr-download:hover,
+.btn-ocr-rerun:hover {
+  background: rgba(148, 163, 184, 0.2);
+}
+
+.btn-ocr-rerun:disabled {
+  opacity: 0.6;
+  cursor: wait;
+  transform: none;
+}
+
+.payment-decision-buttons {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.btn-accept {
+  background: rgba(52, 211, 153, 0.12);
+  color: #34d399;
+  border: 1px solid rgba(52, 211, 153, 0.32);
+}
+
+.btn-accept:hover {
+  background: rgba(52, 211, 153, 0.22);
+}
+
+.btn-reject {
+  background: rgba(248, 113, 113, 0.12);
+  color: #f87171;
+  border: 1px solid rgba(248, 113, 113, 0.32);
+}
+
+.btn-reject:hover {
+  background: rgba(248, 113, 113, 0.22);
+}
+
+@media (max-width: 480px) {
+  .ocr-tool-buttons {
+    flex-direction: column;
+  }
+
+  .ocr-tool-buttons .btn {
+    width: 100%;
+  }
+}
