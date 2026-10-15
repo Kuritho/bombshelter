@@ -1,24 +1,26 @@
+// src/components/OwnerDashboard.js
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
-import { 
-  useMenuItems, 
-  useOrders, 
-  useReviews, 
-  useEmployees, 
-  useCustomers 
+import {
+  useMenuItems,
+  useOrders,
+  useEmployees,
+  useCustomers,
+  useCategories,
+  useReviewsWithProducts
 } from '../hooks/useSupabase';
-import { 
-  initStorage, 
-  uploadImage as uploadImageUtil, 
-  deleteImage as deleteImageUtil, 
-  testDirectBucketAccess 
+import {
+  initStorage,
+  uploadImage as uploadImageUtil,
+  deleteImage as deleteImageUtil,
+  testDirectBucketAccess
 } from '../utils/storage';
 import './OwnerDashboard.css';
 
 import logo from '../assets/logo.jpg';
 
 // ============================================
-// ICONS (unchanged)
+// ICONS
 // ============================================
 const LogOutIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -113,6 +115,13 @@ const MenuIcon = () => (
   </svg>
 );
 
+const TagIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+    <line x1="7" y1="7" x2="7.01" y2="7"/>
+  </svg>
+);
+
 const EditIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
@@ -180,14 +189,11 @@ const ReceiptIcon = () => (
 // ============================================
 const getPaymentStatusInfo = (status) => {
   switch (status) {
-    case 'valid':
-      return { label: '✅ Verified', className: 'valid' };
+    case 'confirmed':
+      return { label: '✅ Confirmed', className: 'confirmed' };
+    case 'rejected':
+      return { label: '❌ Rejected', className: 'rejected' };
     case 'unverified':
-      return { label: '⏳ Awaiting Verification', className: 'unverified' };
-    case 'underpayment':
-      return { label: '⚠️ Underpaid', className: 'underpayment' };
-    case 'overpayment':
-      return { label: '⚠️ Overpaid', className: 'overpayment' };
     default:
       return { label: '⏳ Unverified', className: 'unverified' };
   }
@@ -208,8 +214,8 @@ const getStatusBadge = (status) => {
 // ============================================
 // CONFIRMATION MODAL
 // ============================================
-function ConfirmModal({ 
-  isOpen, title, message, 
+function ConfirmModal({
+  isOpen, title, message,
   confirmText = 'Yes, Confirm', cancelText = 'No, Cancel',
   onConfirm, onCancel, isLoading = false, variant = 'warning'
 }) {
@@ -217,26 +223,26 @@ function ConfirmModal({
 
   return (
     <div className="confirm-modal-overlay" onClick={onCancel}>
-      <div 
-        className={`confirm-modal-content confirm-modal-${variant}`} 
+      <div
+        className={`confirm-modal-content confirm-modal-${variant}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="confirm-modal-icon">
           <WarningIcon />
         </div>
-        
+
         <h3 className="confirm-modal-title">{title}</h3>
         <p className="confirm-modal-message">{message}</p>
-        
+
         <div className="confirm-modal-actions">
-          <button 
+          <button
             className="confirm-btn confirm-btn-no"
             onClick={onCancel}
             disabled={isLoading}
           >
             {cancelText}
           </button>
-          <button 
+          <button
             className={`confirm-btn confirm-btn-yes confirm-btn-yes-${variant}`}
             onClick={onConfirm}
             disabled={isLoading}
@@ -250,31 +256,73 @@ function ConfirmModal({
 }
 
 // ============================================
+// SUCCESS MODAL (generic)
+// ============================================
+function SuccessModal({ isOpen, title, message, email, onClose }) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="success-modal-overlay" onClick={onClose}>
+      <div className="success-modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="success-modal-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+            <polyline points="22 4 12 14.01 9 11.01"/>
+          </svg>
+        </div>
+
+        <h3 className="success-modal-title">{title}</h3>
+
+        <p className="success-modal-message">
+          {message}
+          {email && (
+            <>
+              <br />
+              <span className="success-modal-email">{email}</span>
+            </>
+          )}
+        </p>
+
+        <div className="success-modal-actions">
+          <button className="success-modal-btn" onClick={onClose}>
+            Got it
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================
 // MAIN COMPONENT
 // ============================================
 function OwnerDashboard({ user, onLogout }) {
   const [activeTab, setActiveTab] = useState('orders');
-  
+
   // Upload state
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [selectedImage, setSelectedImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
-  
+
   // Product form
   const [uploadForm, setUploadForm] = useState({
-    name: '', type: 'coffee', price: '', description: '', is_available: true
+    name: '',
+    category_id: '',
+    price: '',
+    description: '',
+    is_available: true
   });
-  
+
   // Edit product
   const [editingProduct, setEditingProduct] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({
-    name: '', type: '', price: '', description: '', is_available: true
+    name: '', category_id: '', price: '', description: '', is_available: true
   });
   const [editImage, setEditImage] = useState(null);
   const [editImagePreview, setEditImagePreview] = useState(null);
-  
+
   // Employee form
   const [creatingEmployee, setCreatingEmployee] = useState(false);
   const [employeeForm, setEmployeeForm] = useState({
@@ -283,11 +331,16 @@ function OwnerDashboard({ user, onLogout }) {
   const [employeeError, setEmployeeError] = useState('');
   const [employeeSuccess, setEmployeeSuccess] = useState('');
   const [deletingEmployee, setDeletingEmployee] = useState(null);
-  
+
+  // 🔔 Success modal state
+  const [employeeSuccessModal, setEmployeeSuccessModal] = useState({
+    isOpen: false,
+    email: '',
+    name: ''
+  });
+
   // Order filter
   const [orderStatus, setOrderStatus] = useState('all');
-  
-  // Delete product
   const [deletingProduct, setDeletingProduct] = useState(null);
 
   // Customer management
@@ -298,6 +351,14 @@ function OwnerDashboard({ user, onLogout }) {
   const [reviewingOrder, setReviewingOrder] = useState(null);
   const [viewingReceipt, setViewingReceipt] = useState(null);
 
+  // Category management
+  const [isAddingCategory, setIsAddingCategory] = useState(false);
+  const [newCategoryForm, setNewCategoryForm] = useState({
+    slug: '', name: '', icon: '📦', color: '#ff6b35', display_order: 50
+  });
+
+  const [menuCategoryFilter, setMenuCategoryFilter] = useState('all');
+
   // Confirmation modal
   const [confirmModal, setConfirmModal] = useState({
     isOpen: false, title: '', message: '',
@@ -305,8 +366,8 @@ function OwnerDashboard({ user, onLogout }) {
     onConfirm: null, variant: 'warning', isLoading: false
   });
 
-  const openConfirm = ({ 
-    title, message, confirmText, cancelText, onConfirm, variant = 'warning' 
+  const openConfirm = ({
+    title, message, confirmText, cancelText, onConfirm, variant = 'warning'
   }) => {
     setConfirmModal({
       isOpen: true, title, message,
@@ -337,42 +398,65 @@ function OwnerDashboard({ user, onLogout }) {
   const [profileSuccess, setProfileSuccess] = useState('');
   const [profileError, setProfileError] = useState('');
   const [isEditingProfile, setIsEditingProfile] = useState(false);
-  
+
   // ============================================
   // HOOKS
   // ============================================
-  const { 
-    items: menuItems, 
-    addMenuItem, 
+  const {
+    items: menuItems,
+    addMenuItem,
     updateMenuItem,
     deleteMenuItem,
-    refetch: refetchMenuItems 
+    refetch: refetchMenuItems
   } = useMenuItems();
-  
-  const { 
-    orders, 
-    updatePaymentStatus, 
-    refresh: refetchOrders 
+
+  const {
+    categories,
+    addCategory,
+    deleteCategory,
+    refetch: refetchCategories
+  } = useCategories();
+
+  const {
+    orders,
+    updatePaymentStatus,
+    refresh: refetchOrders
   } = useOrders();
-  
-  const { reviews } = useReviews();
-  
-  const { 
-    employees, 
-    loading: loadingEmployees, 
+
+  const { reviews, refetch: refetchReviews } = useReviewsWithProducts();
+
+  const {
+    employees,
+    loading: loadingEmployees,
     error: employeesError,
     createEmployee,
     deleteEmployee,
-    refetch: fetchEmployees 
+    refetch: fetchEmployees
   } = useEmployees();
 
-  const { 
+  const {
     customers,
     loading: loadingCustomers,
     error: customersError,
     deleteCustomer,
     refetch: fetchCustomers
   } = useCustomers();
+
+  // ============================================
+  // DERIVED — menu grouped by category
+  // ============================================
+  const menuCounts = React.useMemo(() => {
+    const counts = { all: menuItems.length };
+    categories.forEach(cat => {
+      counts[cat.slug] = menuItems.filter(i => i.category_id === cat.id).length;
+    });
+    return counts;
+  }, [menuItems, categories]);
+
+  const visibleCategories = React.useMemo(() => {
+    if (menuCategoryFilter === 'all') return categories;
+    return categories.filter(c => c.slug === menuCategoryFilter);
+  }, [categories, menuCategoryFilter]);
 
   // ============================================
   // BLOB URL CLEANUP ON UNMOUNT
@@ -392,9 +476,9 @@ function OwnerDashboard({ user, onLogout }) {
       try {
         setStorageInitialized(false);
         setStorageError(null);
-        
+
         const initialized = await initStorage();
-        
+
         if (initialized) {
           const accessible = await testDirectBucketAccess();
           setBucketExists(accessible);
@@ -403,7 +487,7 @@ function OwnerDashboard({ user, onLogout }) {
           setBucketExists(false);
           setStorageError('Storage bucket "product-images" not found.');
         }
-        
+
         setStorageInitialized(true);
       } catch (error) {
         setStorageError(error.message || 'Failed to initialize storage');
@@ -411,24 +495,24 @@ function OwnerDashboard({ user, onLogout }) {
         setBucketExists(false);
       }
     };
-    
+
     checkStorage();
   }, []);
 
   // ============================================
-  // EMPLOYEE HANDLERS — WITH CONFIRMATION
+  // EMPLOYEE HANDLERS
   // ============================================
   const handleCreateEmployee = (e) => {
     e.preventDefault();
-    
+
     if (!employeeForm.name.trim() || !employeeForm.email.trim() || !employeeForm.password) {
       setEmployeeError('Please fill in all fields');
       return;
     }
-    
+
     openConfirm({
       title: 'Create Employee Account?',
-      message: `Are you sure you want to create an account for "${employeeForm.name}" (${employeeForm.email})? They will be able to log in as an employee immediately.`,
+      message: `Create an account for "${employeeForm.name}" (${employeeForm.email})? They'll receive a verification email and must click the link before signing in. You will stay logged in as owner.`,
       confirmText: 'Yes, Create',
       cancelText: 'No, Cancel',
       variant: 'warning',
@@ -438,16 +522,25 @@ function OwnerDashboard({ user, onLogout }) {
         setEmployeeSuccess('');
         setCreatingEmployee(true);
 
+        const newEmpEmail = employeeForm.email;
+        const newEmpName = employeeForm.name;
+
         try {
           const newEmployee = await createEmployee({
-            email: employeeForm.email,
+            email: newEmpEmail,
             password: employeeForm.password,
-            name: employeeForm.name
+            name: newEmpName
           });
 
           if (newEmployee) {
-            setEmployeeSuccess(`✅ Employee account created! Email: ${employeeForm.email}`);
             setEmployeeForm({ email: '', password: '', name: '', role: 'employee' });
+
+            // 🔔 Show the success modal
+            setEmployeeSuccessModal({
+              isOpen: true,
+              email: newEmpEmail,
+              name: newEmpName
+            });
           }
         } catch (error) {
           setEmployeeError(error.message || 'Failed to create employee account');
@@ -481,7 +574,7 @@ function OwnerDashboard({ user, onLogout }) {
   };
 
   // ============================================
-  // IMAGE HANDLERS — BLOB URL (quota-safe)
+  // IMAGE HANDLERS
   // ============================================
   const handleImageSelect = (e) => {
     const file = e.target.files[0];
@@ -497,9 +590,9 @@ function OwnerDashboard({ user, onLogout }) {
         e.target.value = '';
         return;
       }
-      
+
       if (imagePreview?.startsWith('blob:')) URL.revokeObjectURL(imagePreview);
-      
+
       setSelectedImage(file);
       const blobUrl = URL.createObjectURL(file);
       setImagePreview(blobUrl);
@@ -520,9 +613,9 @@ function OwnerDashboard({ user, onLogout }) {
         e.target.value = '';
         return;
       }
-      
+
       if (editImagePreview?.startsWith('blob:')) URL.revokeObjectURL(editImagePreview);
-      
+
       setEditImage(file);
       const blobUrl = URL.createObjectURL(file);
       setEditImagePreview(blobUrl);
@@ -533,19 +626,22 @@ function OwnerDashboard({ user, onLogout }) {
   const deleteImage = async (imageUrl) => deleteImageUtil(imageUrl);
 
   // ============================================
-  // PRODUCT HANDLERS — WITH CONFIRMATION
+  // PRODUCT HANDLERS
   // ============================================
   const handleUploadProduct = (e) => {
     e.preventDefault();
-    
+
     if (!uploadForm.name.trim()) { alert('Please enter a product name'); return; }
+    if (!uploadForm.category_id) { alert('Please select a category'); return; }
     if (!uploadForm.price || parseFloat(uploadForm.price) <= 0) { alert('Please enter a valid price'); return; }
     if (!uploadForm.description.trim()) { alert('Please enter a product description'); return; }
     if (!selectedImage) { alert('Please select an image for the product'); return; }
 
+    const selectedCat = categories.find(c => c.id === uploadForm.category_id);
+
     openConfirm({
       title: 'Add New Product?',
-      message: `Are you sure you want to add "${uploadForm.name}" to the menu at ₱${uploadForm.price}?`,
+      message: `Add "${uploadForm.name}" (${selectedCat?.name || 'Unknown category'}) at ₱${uploadForm.price}?`,
       confirmText: 'Yes, Add Product',
       cancelText: 'No, Cancel',
       variant: 'warning',
@@ -561,25 +657,27 @@ function OwnerDashboard({ user, onLogout }) {
 
           const productData = {
             name: uploadForm.name.trim(),
-            type: uploadForm.type,
+            type: selectedCat?.slug || 'other',
+            category_id: uploadForm.category_id,
             price: parseFloat(uploadForm.price),
             description: uploadForm.description.trim(),
             image_url: imageUrl,
-            is_available: uploadForm.is_available
+            is_available: uploadForm.is_available,
+            created_by: user.id
           };
 
           await addMenuItem(productData);
           setUploadProgress(100);
-          
-          setUploadForm({ name: '', type: 'coffee', price: '', description: '', is_available: true });
-          
+
+          setUploadForm({ name: '', category_id: '', price: '', description: '', is_available: true });
+
           if (imagePreview?.startsWith('blob:')) URL.revokeObjectURL(imagePreview);
           setSelectedImage(null);
           setImagePreview(null);
-          
+
           const fileInput = document.getElementById('product-image-input');
           if (fileInput) fileInput.value = '';
-          
+
           await refetchMenuItems();
           alert('✅ Product uploaded successfully!');
           setActiveTab('menu');
@@ -597,7 +695,7 @@ function OwnerDashboard({ user, onLogout }) {
     setEditingProduct(product);
     setEditForm({
       name: product.name,
-      type: product.type,
+      category_id: product.category_id || '',
       price: product.price.toString(),
       description: product.description || '',
       is_available: product.is_available
@@ -608,14 +706,17 @@ function OwnerDashboard({ user, onLogout }) {
 
   const handleUpdateProduct = (e) => {
     e.preventDefault();
-    
+
     if (!editForm.name.trim()) { alert('Please enter a product name'); return; }
+    if (!editForm.category_id) { alert('Please select a category'); return; }
     if (!editForm.price || parseFloat(editForm.price) <= 0) { alert('Please enter a valid price'); return; }
     if (!editForm.description.trim()) { alert('Please enter a product description'); return; }
 
+    const selectedCat = categories.find(c => c.id === editForm.category_id);
+
     openConfirm({
       title: 'Save Changes?',
-      message: `Are you sure you want to update "${editingProduct.name}"? These changes will be visible to all customers immediately.`,
+      message: `Update "${editingProduct.name}"? These changes will be visible to all customers immediately.`,
       confirmText: 'Yes, Save Changes',
       cancelText: 'No, Cancel',
       variant: 'warning',
@@ -636,24 +737,25 @@ function OwnerDashboard({ user, onLogout }) {
 
           const updatedProduct = {
             name: editForm.name.trim(),
-            type: editForm.type,
+            type: selectedCat?.slug || 'other',
+            category_id: editForm.category_id,
             price: parseFloat(editForm.price),
             description: editForm.description.trim(),
             image_url: imageUrl,
             is_available: editForm.is_available,
             updated_at: new Date().toISOString()
           };
-          
+
           await updateMenuItem(editingProduct.id, updatedProduct);
-          
+
           setUploadProgress(100);
           setIsEditing(false);
           setEditingProduct(null);
-          
+
           if (editImagePreview?.startsWith('blob:')) URL.revokeObjectURL(editImagePreview);
           setEditImage(null);
           setEditImagePreview(null);
-          
+
           alert('✅ Product updated successfully!');
           await refetchMenuItems();
         } catch (error) {
@@ -669,7 +771,7 @@ function OwnerDashboard({ user, onLogout }) {
   const handleDeleteProduct = (product) => {
     openConfirm({
       title: 'Delete Product?',
-      message: `Are you sure you want to delete "${product.name}"? This will permanently remove the product and its image. This action cannot be undone.`,
+      message: `Delete "${product.name}"? This will permanently remove the product and its image. This action cannot be undone.`,
       confirmText: 'Yes, Delete',
       cancelText: 'No, Cancel',
       variant: 'danger',
@@ -679,7 +781,7 @@ function OwnerDashboard({ user, onLogout }) {
         try {
           if (product.image_url) await deleteImage(product.image_url);
           await deleteMenuItem(product.id);
-          
+
           alert('✅ Product deleted successfully!');
           await refetchMenuItems();
         } catch (error) {
@@ -692,7 +794,67 @@ function OwnerDashboard({ user, onLogout }) {
   };
 
   // ============================================
-  // ORDER HANDLERS — WITH CONFIRMATION
+  // CATEGORY HANDLERS
+  // ============================================
+  const handleAddCategory = (e) => {
+    e.preventDefault();
+    if (!newCategoryForm.slug.trim() || !newCategoryForm.name.trim()) {
+      alert('Please fill in slug and name');
+      return;
+    }
+
+    const cleanSlug = newCategoryForm.slug.trim().toLowerCase().replace(/\s+/g, '-');
+
+    openConfirm({
+      title: 'Add Category?',
+      message: `Add new category "${newCategoryForm.name}" (${newCategoryForm.icon})?`,
+      confirmText: 'Yes, Add',
+      cancelText: 'No, Cancel',
+      variant: 'warning',
+      onConfirm: async () => {
+        closeConfirm();
+        try {
+          await addCategory({
+            slug: cleanSlug,
+            name: newCategoryForm.name.trim(),
+            icon: newCategoryForm.icon.trim() || '📦',
+            color: newCategoryForm.color.trim() || '#ff6b35',
+            display_order: parseInt(newCategoryForm.display_order) || 50,
+            is_active: true
+          });
+          setNewCategoryForm({ slug: '', name: '', icon: '📦', color: '#ff6b35', display_order: 50 });
+          setIsAddingCategory(false);
+          alert('✅ Category added successfully!');
+          await refetchCategories();
+        } catch (err) {
+          alert('❌ Failed to add category: ' + err.message);
+        }
+      }
+    });
+  };
+
+  const handleDeleteCategory = (cat) => {
+    openConfirm({
+      title: 'Delete Category?',
+      message: `Delete category "${cat.name}"? This cannot be undone. Items still using this category must be reassigned first.`,
+      confirmText: 'Yes, Delete',
+      cancelText: 'No, Cancel',
+      variant: 'danger',
+      onConfirm: async () => {
+        closeConfirm();
+        try {
+          await deleteCategory(cat.id);
+          alert('✅ Category deleted!');
+          await refetchCategories();
+        } catch (err) {
+          alert('❌ ' + err.message);
+        }
+      }
+    });
+  };
+
+  // ============================================
+  // ORDER HANDLERS
   // ============================================
   const updateOrderStatus = (orderId, newStatus) => {
     const statusLabels = {
@@ -706,13 +868,13 @@ function OwnerDashboard({ user, onLogout }) {
 
     openConfirm({
       title: `${label} Order?`,
-      message: `Are you sure you want to mark this order as "${label}"? This action will be reflected immediately.`,
+      message: `Mark this order as "${label}"? This action will be reflected immediately.`,
       confirmText: `Yes, Mark as ${label}`,
       cancelText: 'No, Cancel',
       variant: newStatus === 'declined' || newStatus === 'cancelled' ? 'danger' : 'warning',
       onConfirm: async () => {
         setConfirmModal(prev => ({ ...prev, isLoading: true }));
-        
+
         try {
           const { error } = await supabase
             .from('orders')
@@ -720,13 +882,13 @@ function OwnerDashboard({ user, onLogout }) {
             .eq('id', orderId);
 
           if (error) throw error;
-          
+
           await refetchOrders();
-          
+
           if (reviewingOrder && reviewingOrder.id === orderId) {
             setReviewingOrder({ ...reviewingOrder, status: newStatus });
           }
-          
+
           closeConfirm();
           alert(`✅ Order status updated to "${label}"`);
         } catch (error) {
@@ -741,35 +903,32 @@ function OwnerDashboard({ user, onLogout }) {
     setReviewingOrder(order);
   };
 
-  // ============================================
-  // PAYMENT STATUS — WITH CONFIRMATION
-  // ============================================
   const handleUpdatePaymentStatus = (orderId, newPaymentStatus) => {
     const statusLabels = {
-      valid: 'Verified',
-      underpayment: 'Underpaid',
-      overpayment: 'Overpaid'
+      confirmed: 'Confirmed',
+      rejected: 'Rejected',
+      unverified: 'Unverified'
     };
     const label = statusLabels[newPaymentStatus] || newPaymentStatus;
 
     openConfirm({
       title: `Mark Payment as ${label}?`,
-      message: `Are you sure you want to mark this order's payment as "${label}"? The customer will see this update.`,
+      message: `Mark this order's payment as "${label}"? The customer will see this update.`,
       confirmText: `Yes, Mark as ${label}`,
       cancelText: 'No, Cancel',
-      variant: newPaymentStatus === 'valid' ? 'warning' : 'danger',
+      variant: newPaymentStatus === 'confirmed' ? 'warning' : 'danger',
       onConfirm: async () => {
         setConfirmModal(prev => ({ ...prev, isLoading: true }));
-        
+
         try {
           await updatePaymentStatus(orderId, newPaymentStatus);
-          
+
           if (reviewingOrder && reviewingOrder.id === orderId) {
             setReviewingOrder({ ...reviewingOrder, payment_status: newPaymentStatus });
           }
-          
+
           closeConfirm();
-          alert(`✅ Payment status updated to "${label}"`);
+          alert(`✅ Payment marked as "${label}"`);
         } catch (err) {
           setConfirmModal(prev => ({ ...prev, isLoading: false }));
           alert('❌ Failed to update payment status: ' + err.message);
@@ -779,12 +938,12 @@ function OwnerDashboard({ user, onLogout }) {
   };
 
   // ============================================
-  // CUSTOMER HANDLERS — WITH CONFIRMATION
+  // CUSTOMER HANDLERS
   // ============================================
   const handleDeleteCustomer = (customer) => {
     openConfirm({
       title: 'Delete Customer?',
-      message: `Are you sure you want to delete customer "${customer.name}" (${customer.email})? This will remove ALL their data including orders. This action cannot be undone.`,
+      message: `Delete customer "${customer.name}" (${customer.email})? This will remove ALL their data including orders. This action cannot be undone.`,
       confirmText: 'Yes, Delete',
       cancelText: 'No, Cancel',
       variant: 'danger',
@@ -819,7 +978,7 @@ function OwnerDashboard({ user, onLogout }) {
   };
 
   // ============================================
-  // LOGOUT — WITH CONFIRMATION
+  // LOGOUT
   // ============================================
   const handleLogout = () => {
     openConfirm({
@@ -836,11 +995,11 @@ function OwnerDashboard({ user, onLogout }) {
   };
 
   // ============================================
-  // PROFILE HANDLERS — WITH CONFIRMATION
+  // PROFILE HANDLERS
   // ============================================
   const handleProfileUpdate = (e) => {
     e.preventDefault();
-    
+
     if (profile.name === user?.name) {
       alert('No changes to save.');
       return;
@@ -848,7 +1007,7 @@ function OwnerDashboard({ user, onLogout }) {
 
     openConfirm({
       title: 'Update Profile?',
-      message: `Are you sure you want to change your name to "${profile.name}"?`,
+      message: `Change your name to "${profile.name}"?`,
       confirmText: 'Yes, Update',
       cancelText: 'No, Cancel',
       variant: 'warning',
@@ -869,7 +1028,7 @@ function OwnerDashboard({ user, onLogout }) {
           setProfileSuccess('✅ Profile updated successfully!');
           setIsEditingProfile(false);
           user.name = profile.name;
-          
+
           setTimeout(() => setProfileSuccess(''), 3000);
         } catch (err) {
           setProfileError(err.message || 'Failed to update profile');
@@ -897,7 +1056,7 @@ function OwnerDashboard({ user, onLogout }) {
 
     openConfirm({
       title: 'Change Password?',
-      message: 'Are you sure you want to change your account password? You will need to use the new password on next login.',
+      message: 'Change your account password? You will need to use the new password on next login.',
       confirmText: 'Yes, Change Password',
       cancelText: 'No, Cancel',
       variant: 'warning',
@@ -914,7 +1073,7 @@ function OwnerDashboard({ user, onLogout }) {
 
           setProfileSuccess('✅ Password updated successfully!');
           setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
-          
+
           setTimeout(() => setProfileSuccess(''), 3000);
         } catch (err) {
           setProfileError(err.message || 'Failed to update password');
@@ -941,26 +1100,26 @@ function OwnerDashboard({ user, onLogout }) {
     const today = new Date();
     const thisMonth = today.getMonth();
     const thisYear = today.getFullYear();
-    
+
     const daily = completedOrders.filter(o => {
       const orderDate = new Date(o.created_at);
       return orderDate.toDateString() === today.toDateString();
     });
-    
+
     const monthly = completedOrders.filter(o => {
       const orderDate = new Date(o.created_at);
       return orderDate.getMonth() === thisMonth && orderDate.getFullYear() === thisYear;
     });
-    
+
     const yearly = completedOrders.filter(o => {
       const orderDate = new Date(o.created_at);
       return orderDate.getFullYear() === thisYear;
     });
-    
+
     return {
-      daily: daily.reduce((sum, o) => sum + o.total_amount, 0),
-      monthly: monthly.reduce((sum, o) => sum + o.total_amount, 0),
-      yearly: yearly.reduce((sum, o) => sum + o.total_amount, 0)
+      daily: daily.reduce((sum, o) => sum + Number(o.total_amount), 0),
+      monthly: monthly.reduce((sum, o) => sum + Number(o.total_amount), 0),
+      yearly: yearly.reduce((sum, o) => sum + Number(o.total_amount), 0)
     };
   };
 
@@ -996,7 +1155,7 @@ function OwnerDashboard({ user, onLogout }) {
         const dayIndex = orderDate.getDay();
         const adjustedIndex = dayIndex === 0 ? 6 : dayIndex - 1;
         if (data[adjustedIndex]) {
-          data[adjustedIndex].amount += order.total_amount;
+          data[adjustedIndex].amount += Number(order.total_amount);
         }
       }
     });
@@ -1014,7 +1173,7 @@ function OwnerDashboard({ user, onLogout }) {
   };
 
   // ============================================
-  // RENDER (unchanged JSX structure)
+  // RENDER
   // ============================================
   return (
     <div className="owner-dashboard">
@@ -1057,13 +1216,20 @@ function OwnerDashboard({ user, onLogout }) {
           <UploadIcon />
           <span>Add Product</span>
         </button>
+        <button className={`nav-tab ${activeTab === 'categories' ? 'active' : ''}`} onClick={() => setActiveTab('categories')}>
+          <TagIcon />
+          <span>Categories</span>
+        </button>
         <button className={`nav-tab ${activeTab === 'analytics' ? 'active' : ''}`} onClick={() => setActiveTab('analytics')}>
           <ChartIcon />
           <span>Analytics</span>
         </button>
-        <button className={`nav-tab ${activeTab === 'feedback' ? 'active' : ''}`} onClick={() => setActiveTab('feedback')}>
+        <button className={`nav-tab ${activeTab === 'feedback' ? 'active' : ''}`} onClick={() => { setActiveTab('feedback'); refetchReviews(); }}>
           <StarIcon />
           <span>Reviews</span>
+          {reviews.length > 0 && (
+            <span className="nav-badge">{reviews.length}</span>
+          )}
         </button>
         <button className={`nav-tab ${activeTab === 'employees' ? 'active' : ''}`} onClick={() => { setActiveTab('employees'); fetchEmployees(); }}>
           <UsersIcon />
@@ -1084,11 +1250,11 @@ function OwnerDashboard({ user, onLogout }) {
         <div className="storage-warning">
           <strong>⚠️ Storage bucket "product-images" not found.</strong>
           <br />
-          <span style={{fontSize: '0.9rem'}}>
+          <span style={{ fontSize: '0.9rem' }}>
             Create it in Supabase: <strong>Storage → Create bucket → Name: product-images → Public: ON</strong>
           </span>
           {storageError && (
-            <div style={{marginTop: '0.5rem', fontSize: '0.85rem', color: '#fca5a5'}}>
+            <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#fca5a5' }}>
               Error: {storageError}
             </div>
           )}
@@ -1132,7 +1298,7 @@ function OwnerDashboard({ user, onLogout }) {
               <div>
                 <span className="metric-title">Total Revenue</span>
                 <span className="metric-value">
-                  ₱{orders.filter(o => o.status === 'completed').reduce((sum, o) => sum + o.total_amount, 0).toLocaleString()}
+                  ₱{orders.filter(o => o.status === 'completed').reduce((sum, o) => sum + Number(o.total_amount), 0).toLocaleString()}
                 </span>
               </div>
             </div>
@@ -1234,8 +1400,8 @@ function OwnerDashboard({ user, onLogout }) {
                         </button>
                       )}
 
-                      {order.status === 'pending' && order.payment_status === 'valid' && (
-                        <button 
+                      {order.status === 'pending' && order.payment_status === 'confirmed' && (
+                        <button
                           className="btn btn-warning btn-sm"
                           onClick={() => updateOrderStatus(order.id, 'preparing')}
                           title="Skip review and start preparing"
@@ -1245,7 +1411,7 @@ function OwnerDashboard({ user, onLogout }) {
                       )}
 
                       {order.status === 'preparing' && (
-                        <button 
+                        <button
                           className="btn btn-success btn-sm"
                           onClick={() => updateOrderStatus(order.id, 'completed')}
                         >
@@ -1253,8 +1419,8 @@ function OwnerDashboard({ user, onLogout }) {
                         </button>
                       )}
 
-                      {order.status === 'pending' && order.payment_status !== 'valid' && (
-                        <button 
+                      {order.status === 'pending' && order.payment_status !== 'confirmed' && (
+                        <button
                           className="btn btn-info btn-sm"
                           onClick={() => handleProcessOrder(order)}
                           title="Review and verify payment"
@@ -1280,51 +1446,254 @@ function OwnerDashboard({ user, onLogout }) {
               <UploadIcon /> Add New Item
             </button>
           </div>
-          
-          <div className="menu-grid">
-            {menuItems.length === 0 ? (
-              <div className="empty-state">
-                <div className="empty-icon">🍽️</div>
-                <p>No menu items yet. Start by adding your first product!</p>
-              </div>
-            ) : (
-              menuItems.map(item => (
-                <div key={item.id} className="menu-item-card">
-                  <div className="menu-item-image-wrapper">
-                    <img 
-                      src={item.image_url || 'https://via.placeholder.com/300x200/1a1a2e/ffffff?text=No+Image'} 
-                      alt={item.name}
-                      className="menu-item-image"
-                      onError={(e) => { e.target.src = 'https://via.placeholder.com/300x200/1a1a2e/ffffff?text=No+Image'; }}
-                    />
-                    <span className="menu-item-category-badge">{item.type}</span>
-                    <div className="menu-item-actions">
-                      <button className="action-btn edit-btn" onClick={() => handleEditProduct(item)} title="Edit product">
-                        <EditIcon />
-                      </button>
-                      <button 
-                        className="action-btn delete-btn"
-                        onClick={() => handleDeleteProduct(item)}
-                        disabled={deletingProduct === item.id}
-                        title="Delete product"
+
+          {menuItems.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon">🍽️</div>
+              <p>No menu items yet. Start by adding your first product!</p>
+            </div>
+          ) : (
+            <>
+              <div className="category-jump-nav">
+                <span className="category-jump-label">Filter:</span>
+                <div className="category-jump-pills">
+                  <button
+                    className={`category-jump-pill ${menuCategoryFilter === 'all' ? 'active' : ''}`}
+                    onClick={() => setMenuCategoryFilter('all')}
+                  >
+                    <span className="category-jump-icon">🍽️</span>
+                    <span>All</span>
+                    <span className="category-jump-count">{menuCounts.all}</span>
+                  </button>
+                  {categories
+                    .filter(cat => (menuCounts[cat.slug] || 0) > 0)
+                    .map(cat => (
+                      <button
+                        key={cat.id}
+                        className={`category-jump-pill ${menuCategoryFilter === cat.slug ? 'active' : ''}`}
+                        onClick={() => {
+                          setMenuCategoryFilter(cat.slug);
+                          const el = document.getElementById(`owner-category-${cat.slug}`);
+                          if (el) {
+                            const yOffset = -100;
+                            const y = el.getBoundingClientRect().top + window.pageYOffset + yOffset;
+                            window.scrollTo({ top: y, behavior: 'smooth' });
+                          }
+                        }}
+                        style={{ '--cat-color': cat.color }}
                       >
-                        {deletingProduct === item.id ? '...' : <DeleteIcon />}
+                        <span className="category-jump-icon">{cat.icon}</span>
+                        <span>{cat.name}</span>
+                        <span className="category-jump-count">{menuCounts[cat.slug] || 0}</span>
                       </button>
-                    </div>
-                  </div>
-                  <div className="menu-item-info">
-                    <h3>{item.name}</h3>
-                    <p className="menu-item-description">{item.description}</p>
-                    <div className="menu-item-meta">
-                      <span className="menu-item-price">₱{item.price}</span>
-                      <span className={`menu-item-status ${item.is_available ? 'available' : 'unavailable'}`}>
-                        {item.is_available ? '✓ Available' : '✗ Unavailable'}
-                      </span>
-                    </div>
+                    ))}
+                </div>
+              </div>
+
+              <div className="category-sections">
+                {visibleCategories
+                  .filter(cat => (menuCounts[cat.slug] || 0) > 0)
+                  .map(cat => {
+                    const itemsInCategory = menuItems.filter(i => i.category_id === cat.id);
+                    return (
+                      <section
+                        key={cat.id}
+                        id={`owner-category-${cat.slug}`}
+                        className="category-section"
+                      >
+                        <div
+                          className="category-section-header"
+                          style={{ '--cat-color': cat.color }}
+                        >
+                          <div className="category-section-title-wrap">
+                            <span className="category-section-icon">{cat.icon}</span>
+                            <div>
+                              <h3 className="category-section-title">{cat.name}</h3>
+                              <p className="category-section-count">
+                                {itemsInCategory.length} item{itemsInCategory.length !== 1 ? 's' : ''}
+                              </p>
+                            </div>
+                          </div>
+                          <div
+                            className="category-section-accent"
+                            style={{ background: cat.color }}
+                          />
+                        </div>
+
+                        <div className="category-section-grid">
+                          {itemsInCategory.map(item => (
+                            <div key={item.id} className="menu-item-card">
+                              <div className="menu-item-image-wrapper">
+                                <img
+                                  src={item.image_url || 'https://via.placeholder.com/300x200/1a1a2e/ffffff?text=No+Image'}
+                                  alt={item.name}
+                                  className="menu-item-image"
+                                  onError={(e) => { e.target.src = 'https://via.placeholder.com/300x200/1a1a2e/ffffff?text=No+Image'; }}
+                                />
+                                <span className="menu-item-category-badge">
+                                  {item.category?.icon} {item.category?.name || item.type}
+                                </span>
+                                <div className="menu-item-actions">
+                                  <button className="action-btn edit-btn" onClick={() => handleEditProduct(item)} title="Edit product">
+                                    <EditIcon />
+                                  </button>
+                                  <button
+                                    className="action-btn delete-btn"
+                                    onClick={() => handleDeleteProduct(item)}
+                                    disabled={deletingProduct === item.id}
+                                    title="Delete product"
+                                  >
+                                    {deletingProduct === item.id ? '...' : <DeleteIcon />}
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="menu-item-info">
+                                <h3>{item.name}</h3>
+                                <p className="menu-item-description">{item.description}</p>
+                                <div className="menu-item-meta">
+                                  <span className="menu-item-price">₱{item.price}</span>
+                                  <span className={`menu-item-status ${item.is_available ? 'available' : 'unavailable'}`}>
+                                    {item.is_available ? '✓ Available' : '✗ Unavailable'}
+                                  </span>
+                                </div>
+                                <div className="menu-item-rating">
+                                  {item.review_count > 0 ? (
+                                    <>
+                                      <span className="menu-item-stars">
+                                        {'★'.repeat(Math.round(item.avg_rating))}
+                                        {'☆'.repeat(5 - Math.round(item.avg_rating))}
+                                      </span>
+                                      <span className="menu-item-rating-text">
+                                        {item.avg_rating.toFixed(1)} ({item.review_count})
+                                      </span>
+                                    </>
+                                  ) : (
+                                    <span className="menu-item-rating-text muted">No reviews yet</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+                    );
+                  })}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* CATEGORIES TAB */}
+      {activeTab === 'categories' && (
+        <div className="categories-section" style={{ padding: '1.5rem 2rem' }}>
+          <div className="menu-header">
+            <h2>Manage Categories</h2>
+            <button className="btn btn-primary" onClick={() => setIsAddingCategory(!isAddingCategory)}>
+              <UploadIcon /> {isAddingCategory ? 'Cancel' : 'Add Category'}
+            </button>
+          </div>
+
+          {isAddingCategory && (
+            <form
+              onSubmit={handleAddCategory}
+              style={{
+                background: 'rgba(255,255,255,0.03)',
+                border: '1px solid rgba(255,255,255,0.06)',
+                borderRadius: '16px',
+                padding: '1.5rem',
+                marginBottom: '1.5rem'
+              }}
+            >
+              <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div className="form-group">
+                  <label>Slug * (lowercase, e.g. "smoothies")</label>
+                  <input
+                    type="text"
+                    value={newCategoryForm.slug}
+                    onChange={(e) => setNewCategoryForm({ ...newCategoryForm, slug: e.target.value })}
+                    placeholder="smoothies"
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Display Name *</label>
+                  <input
+                    type="text"
+                    value={newCategoryForm.name}
+                    onChange={(e) => setNewCategoryForm({ ...newCategoryForm, name: e.target.value })}
+                    placeholder="Smoothies"
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Icon (emoji)</label>
+                  <input
+                    type="text"
+                    value={newCategoryForm.icon}
+                    onChange={(e) => setNewCategoryForm({ ...newCategoryForm, icon: e.target.value })}
+                    placeholder="🥤"
+                    maxLength={4}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Color</label>
+                  <input
+                    type="color"
+                    value={newCategoryForm.color}
+                    onChange={(e) => setNewCategoryForm({ ...newCategoryForm, color: e.target.value })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Display Order (1 first, 99 last)</label>
+                  <input
+                    type="number"
+                    value={newCategoryForm.display_order}
+                    onChange={(e) => setNewCategoryForm({ ...newCategoryForm, display_order: e.target.value })}
+                    min="1"
+                    max="99"
+                  />
+                </div>
+              </div>
+              <button type="submit" className="btn btn-primary" style={{ marginTop: '1rem' }}>
+                Save Category
+              </button>
+            </form>
+          )}
+
+          <div style={{ display: 'grid', gap: '0.75rem' }}>
+            {categories.map(cat => (
+              <div
+                key={cat.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '1rem',
+                  padding: '1rem 1.25rem',
+                  background: 'rgba(255,255,255,0.03)',
+                  border: `1px solid ${cat.color}30`,
+                  borderLeft: `4px solid ${cat.color}`,
+                  borderRadius: '12px'
+                }}
+              >
+                <span style={{ fontSize: '1.75rem' }}>{cat.icon}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, color: '#f8fafc', fontSize: '1rem' }}>{cat.name}</div>
+                  <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+                    slug: <code>{cat.slug}</code> · order: {cat.display_order}
+                    {' · '}
+                    items: {menuItems.filter(i => i.category_id === cat.id).length}
                   </div>
                 </div>
-              ))
-            )}
+                <button
+                  className="action-btn delete-btn"
+                  onClick={() => handleDeleteCategory(cat)}
+                  title="Delete category"
+                >
+                  <DeleteIcon />
+                </button>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -1343,7 +1712,7 @@ function OwnerDashboard({ user, onLogout }) {
                 <CloseIcon />
               </button>
             </div>
-            
+
             <form className="modal-form" onSubmit={handleUpdateProduct}>
               <div className="form-grid">
                 <div className="form-left">
@@ -1376,36 +1745,39 @@ function OwnerDashboard({ user, onLogout }) {
                   <div className="form-group">
                     <label>Product Name *</label>
                     <input type="text" placeholder="e.g., Mocha Frappuccino" required value={editForm.name}
-                      onChange={(e) => setEditForm({...editForm, name: e.target.value})} />
+                      onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
                   </div>
 
                   <div className="form-row">
                     <div className="form-group">
                       <label>Category *</label>
-                      <select required value={editForm.type} onChange={(e) => setEditForm({...editForm, type: e.target.value})}>
-                        <option value="coffee">☕ Coffee</option>
-                        <option value="food">🍔 Food</option>
-                        <option value="tea">🍵 Tea</option>
-                        <option value="other">📦 Other</option>
+                      <select required value={editForm.category_id}
+                        onChange={(e) => setEditForm({ ...editForm, category_id: e.target.value })}>
+                        <option value="">— Select category —</option>
+                        {categories.map(cat => (
+                          <option key={cat.id} value={cat.id}>
+                            {cat.icon} {cat.name}
+                          </option>
+                        ))}
                       </select>
                     </div>
                     <div className="form-group">
                       <label>Price (₱) *</label>
                       <input type="number" placeholder="0.00" required min="0" step="0.01" value={editForm.price}
-                        onChange={(e) => setEditForm({...editForm, price: e.target.value})} />
+                        onChange={(e) => setEditForm({ ...editForm, price: e.target.value })} />
                     </div>
                   </div>
 
                   <div className="form-group">
                     <label>Description *</label>
                     <textarea placeholder="Describe your product..." rows="4" required value={editForm.description}
-                      onChange={(e) => setEditForm({...editForm, description: e.target.value})} />
+                      onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
                   </div>
 
                   <div className="form-group">
                     <label className="checkbox-label">
                       <input type="checkbox" checked={editForm.is_available}
-                        onChange={(e) => setEditForm({...editForm, is_available: e.target.checked})} />
+                        onChange={(e) => setEditForm({ ...editForm, is_available: e.target.checked })} />
                       Available for order
                     </label>
                   </div>
@@ -1439,14 +1811,14 @@ function OwnerDashboard({ user, onLogout }) {
         <div className="add-product-section">
           <div className="add-product-container">
             <h2>Add New Product</h2>
-            
+
             {!storageInitialized ? (
               <div className="storage-loading">⏳ Initializing storage...</div>
             ) : !bucketExists && (
               <div className="storage-warning">
                 <strong>⚠️ Storage bucket not found!</strong>
-                <p style={{marginTop: '0.5rem', fontSize: '0.9rem'}}>Please create it in Supabase dashboard:</p>
-                <ol style={{marginTop: '0.5rem', fontSize: '0.9rem', paddingLeft: '1.5rem'}}>
+                <p style={{ marginTop: '0.5rem', fontSize: '0.9rem' }}>Please create it in Supabase dashboard:</p>
+                <ol style={{ marginTop: '0.5rem', fontSize: '0.9rem', paddingLeft: '1.5rem' }}>
                   <li>Go to Supabase Dashboard → Storage</li>
                   <li>Click "Create a new bucket"</li>
                   <li>Name: <strong>product-images</strong></li>
@@ -1455,11 +1827,11 @@ function OwnerDashboard({ user, onLogout }) {
                   <li>Refresh this page</li>
                 </ol>
                 {storageError && (
-                  <p style={{marginTop: '0.5rem', fontSize: '0.85rem', color: '#fca5a5'}}>Error: {storageError}</p>
+                  <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#fca5a5' }}>Error: {storageError}</p>
                 )}
               </div>
             )}
-            
+
             <form className="product-form" onSubmit={handleUploadProduct}>
               <div className="form-grid">
                 <div className="form-left">
@@ -1492,36 +1864,39 @@ function OwnerDashboard({ user, onLogout }) {
                   <div className="form-group">
                     <label>Product Name *</label>
                     <input type="text" placeholder="e.g., Mocha Frappuccino" required value={uploadForm.name}
-                      onChange={(e) => setUploadForm({...uploadForm, name: e.target.value})} />
+                      onChange={(e) => setUploadForm({ ...uploadForm, name: e.target.value })} />
                   </div>
 
                   <div className="form-row">
                     <div className="form-group">
                       <label>Category *</label>
-                      <select required value={uploadForm.type} onChange={(e) => setUploadForm({...uploadForm, type: e.target.value})}>
-                        <option value="coffee">☕ Coffee</option>
-                        <option value="food">🍔 Food</option>
-                        <option value="tea">🍵 Tea</option>
-                        <option value="other">📦 Other</option>
+                      <select required value={uploadForm.category_id}
+                        onChange={(e) => setUploadForm({ ...uploadForm, category_id: e.target.value })}>
+                        <option value="">— Select category —</option>
+                        {categories.map(cat => (
+                          <option key={cat.id} value={cat.id}>
+                            {cat.icon} {cat.name}
+                          </option>
+                        ))}
                       </select>
                     </div>
                     <div className="form-group">
                       <label>Price (₱) *</label>
                       <input type="number" placeholder="0.00" required min="0" step="0.01" value={uploadForm.price}
-                        onChange={(e) => setUploadForm({...uploadForm, price: e.target.value})} />
+                        onChange={(e) => setUploadForm({ ...uploadForm, price: e.target.value })} />
                     </div>
                   </div>
 
                   <div className="form-group">
                     <label>Description *</label>
                     <textarea placeholder="Describe your product..." rows="4" required value={uploadForm.description}
-                      onChange={(e) => setUploadForm({...uploadForm, description: e.target.value})} />
+                      onChange={(e) => setUploadForm({ ...uploadForm, description: e.target.value })} />
                   </div>
 
                   <div className="form-group">
                     <label className="checkbox-label">
                       <input type="checkbox" checked={uploadForm.is_available}
-                        onChange={(e) => setUploadForm({...uploadForm, is_available: e.target.checked})} />
+                        onChange={(e) => setUploadForm({ ...uploadForm, is_available: e.target.checked })} />
                       Available for order
                     </label>
                   </div>
@@ -1550,7 +1925,7 @@ function OwnerDashboard({ user, onLogout }) {
       {activeTab === 'analytics' && (
         <div className="analytics-section">
           <h2>Sales Analytics</h2>
-          
+
           <div className="metrics-grid">
             <div className="metric-card">
               <span className="metric-title">Daily Revenue</span>
@@ -1591,7 +1966,7 @@ function OwnerDashboard({ user, onLogout }) {
               <h3>Top 3 Best-Selling Products</h3>
               <div className="product-rank-list best">
                 {analytics.best.length === 0 ? (
-                  <p style={{color: '#94a3b8'}}>No sales data yet.</p>
+                  <p style={{ color: '#94a3b8' }}>No sales data yet.</p>
                 ) : (
                   analytics.best.map((product, index) => (
                     <div key={index} className="product-rank-item">
@@ -1609,12 +1984,12 @@ function OwnerDashboard({ user, onLogout }) {
 
             <div className="analytics-panel">
               <h3>Top 3 Least-Selling Products</h3>
-              <p style={{color: '#94a3b8', fontSize: '0.9rem', marginBottom: '1.5rem', marginTop: '-1rem'}}>
+              <p style={{ color: '#94a3b8', fontSize: '0.9rem', marginBottom: '1.5rem', marginTop: '-1rem' }}>
                 Items for menu review or potential replacement.
               </p>
               <div className="product-rank-list worst">
                 {analytics.worst.length === 0 ? (
-                  <p style={{color: '#94a3b8'}}>No sales data yet.</p>
+                  <p style={{ color: '#94a3b8' }}>No sales data yet.</p>
                 ) : (
                   analytics.worst.map((product, index) => (
                     <div key={index} className="product-rank-item">
@@ -1636,25 +2011,102 @@ function OwnerDashboard({ user, onLogout }) {
       {/* FEEDBACK TAB */}
       {activeTab === 'feedback' && (
         <div className="feedback-section">
-          <h2>Customer Reviews</h2>
+          <div className="feedback-header-row">
+            <h2>Customer Reviews</h2>
+            <button className="btn btn-secondary btn-sm" onClick={refetchReviews}>
+              🔄 Refresh
+            </button>
+          </div>
+
+          <div className="review-summary-grid">
+            <div className="review-summary-card">
+              <div className="review-summary-icon">⭐</div>
+              <div>
+                <span className="review-summary-value">
+                  {reviews.length > 0
+                    ? (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(2)
+                    : '—'}
+                </span>
+                <span className="review-summary-label">Average Rating</span>
+              </div>
+            </div>
+            <div className="review-summary-card">
+              <div className="review-summary-icon">💬</div>
+              <div>
+                <span className="review-summary-value">{reviews.length}</span>
+                <span className="review-summary-label">Total Reviews</span>
+              </div>
+            </div>
+            <div className="review-summary-card highlight">
+              <div className="review-summary-icon">🏆</div>
+              <div>
+                <span className="review-summary-value">
+                  {reviews.length > 0
+                    ? (() => {
+                        const productStats = {};
+                        reviews.forEach(r => {
+                          (r.product_names || []).forEach(name => {
+                            if (!productStats[name]) productStats[name] = { sum: 0, count: 0 };
+                            productStats[name].sum += r.rating;
+                            productStats[name].count += 1;
+                          });
+                        });
+                        let best = null;
+                        for (const [name, s] of Object.entries(productStats)) {
+                          const avg = s.sum / s.count;
+                          if (!best || avg > best.avg) best = { name, avg, count: s.count };
+                        }
+                        return best ? `${best.name} (${best.avg.toFixed(1)}★)` : '—';
+                      })()
+                    : '—'}
+                </span>
+                <span className="review-summary-label">Top Rated Product</span>
+              </div>
+            </div>
+          </div>
+
           <div className="feedback-list">
             {reviews.length === 0 ? (
               <div className="empty-state">
                 <div className="empty-icon">⭐</div>
                 <p>No reviews yet</p>
+                <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '0.5rem' }}>
+                  Reviews appear here once customers rate completed orders.
+                </p>
               </div>
             ) : (
               reviews.map(review => (
                 <div key={review.id} className="feedback-card">
                   <div className="feedback-header">
                     <div className="customer-info">
-                      <h4>{review.users?.name || 'Anonymous'}</h4>
-                      <p>{new Date(review.created_at).toLocaleDateString()}</p>
+                      <h4>{review.customer_name || 'Anonymous'}</h4>
+                      <p>
+                        {new Date(review.created_at).toLocaleDateString('en-PH', {
+                          year: 'numeric', month: 'long', day: 'numeric'
+                        })}
+                        {review.order_number && (
+                          <span className="review-order-tag"> · Order #{review.order_number}</span>
+                        )}
+                      </p>
                     </div>
                     <div className="stars">
                       {'★'.repeat(review.rating)}{'☆'.repeat(5 - review.rating)}
                     </div>
                   </div>
+
+                  {review.product_names && review.product_names.length > 0 && (
+                    <div className="review-products-row">
+                      <span className="review-products-label">Reviewed items:</span>
+                      <div className="review-product-chips">
+                        {review.product_names.map((name, i) => (
+                          <span key={i} className="review-product-chip">
+                            {name}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="feedback-text">"{review.text}"</div>
                 </div>
               ))
@@ -1668,28 +2120,27 @@ function OwnerDashboard({ user, onLogout }) {
         <div className="employees-container">
           <div className="employees-grid">
             <div className="employee-form-panel">
-              <h2><UserPlusIcon style={{marginRight: '0.5rem'}} /> Create Employee Account</h2>
+              <h2><UserPlusIcon style={{ marginRight: '0.5rem' }} /> Create Employee Account</h2>
               <form onSubmit={handleCreateEmployee}>
                 <div className="form-group">
                   <label>Full Name *</label>
                   <input type="text" placeholder="Enter employee name" required value={employeeForm.name}
-                    onChange={(e) => setEmployeeForm({...employeeForm, name: e.target.value})} />
+                    onChange={(e) => setEmployeeForm({ ...employeeForm, name: e.target.value })} />
                 </div>
                 <div className="form-group">
                   <label>Email *</label>
                   <input type="email" placeholder="employee@example.com" required value={employeeForm.email}
-                    onChange={(e) => setEmployeeForm({...employeeForm, email: e.target.value})} />
+                    onChange={(e) => setEmployeeForm({ ...employeeForm, email: e.target.value })} />
                 </div>
                 <div className="form-group">
                   <label>Password *</label>
                   <input type="password" placeholder="Min 6 characters" required minLength={6} value={employeeForm.password}
-                    onChange={(e) => setEmployeeForm({...employeeForm, password: e.target.value})} />
+                    onChange={(e) => setEmployeeForm({ ...employeeForm, password: e.target.value })} />
                 </div>
 
-                {employeeError && <div className="error-message" style={{marginBottom: '1rem'}}>❌ {employeeError}</div>}
-                {employeeSuccess && <div className="success-message" style={{marginBottom: '1rem'}}>✅ {employeeSuccess}</div>}
+                {employeeError && <div className="error-message" style={{ marginBottom: '1rem' }}>❌ {employeeError}</div>}
 
-                <button type="submit" className="btn btn-primary btn-large" disabled={creatingEmployee} style={{width: '100%'}}>
+                <button type="submit" className="btn btn-primary btn-large" disabled={creatingEmployee} style={{ width: '100%' }}>
                   {creatingEmployee ? '⏳ Creating...' : '➕ Create Employee Account'}
                 </button>
               </form>
@@ -1706,15 +2157,15 @@ function OwnerDashboard({ user, onLogout }) {
                   {loadingEmployees ? '⏳ Loading...' : '🔄 Refresh'}
                 </button>
               </div>
-              
-              {employeesError && <div className="error-message" style={{marginBottom: '1rem'}}>❌ Error: {employeesError}</div>}
-              
+
+              {employeesError && <div className="error-message" style={{ marginBottom: '1rem' }}>❌ Error: {employeesError}</div>}
+
               {loadingEmployees ? (
-                <p style={{color: '#94a3b8', textAlign: 'center', padding: '2rem'}}>⏳ Loading employees...</p>
+                <p style={{ color: '#94a3b8', textAlign: 'center', padding: '2rem' }}>⏳ Loading employees...</p>
               ) : employees.length === 0 ? (
-                <div className="empty-state" style={{textAlign: 'center', padding: '3rem'}}>
-                  <p style={{color: '#94a3b8'}}>No employees found.</p>
-                  <p style={{fontSize: '0.8rem', color: '#64748b'}}>Create your first employee using the form on the left.</p>
+                <div className="empty-state" style={{ textAlign: 'center', padding: '3rem' }}>
+                  <p style={{ color: '#94a3b8' }}>No employees found.</p>
+                  <p style={{ fontSize: '0.8rem', color: '#64748b' }}>Create your first employee using the form on the left.</p>
                 </div>
               ) : (
                 <div className="employee-list">
@@ -1783,7 +2234,7 @@ function OwnerDashboard({ user, onLogout }) {
             {customerSearch && <button className="search-clear-btn" onClick={() => setCustomerSearch('')}>×</button>}
           </div>
 
-          {customersError && <div className="error-message" style={{marginBottom: '1rem'}}>❌ Error: {customersError}</div>}
+          {customersError && <div className="error-message" style={{ marginBottom: '1rem' }}>❌ Error: {customersError}</div>}
 
           {loadingCustomers ? (
             <div className="customers-loading">⏳ Loading customers...</div>
@@ -1820,7 +2271,7 @@ function OwnerDashboard({ user, onLogout }) {
                       <td><span className="customer-email">{customer.email}</span></td>
                       <td>
                         <span className="customer-joined">
-                          {customer.created_at 
+                          {customer.created_at
                             ? new Date(customer.created_at).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' })
                             : 'N/A'}
                         </span>
@@ -1880,7 +2331,7 @@ function OwnerDashboard({ user, onLogout }) {
                   <form onSubmit={handleProfileUpdate} className="profile-form">
                     <div className="form-group">
                       <label>Full Name</label>
-                      <input type="text" value={profile.name} onChange={(e) => setProfile({...profile, name: e.target.value})}
+                      <input type="text" value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })}
                         placeholder="Enter your full name" required />
                     </div>
                     <div className="form-group">
@@ -1894,7 +2345,7 @@ function OwnerDashboard({ user, onLogout }) {
                     </div>
                     <div className="profile-actions">
                       <button type="button" className="btn-cancel" onClick={() => {
-                        setIsEditingProfile(false); setProfile({...profile, name: user?.name || ''});
+                        setIsEditingProfile(false); setProfile({ ...profile, name: user?.name || '' });
                       }}>Cancel</button>
                       <button type="submit" className="btn-save" disabled={profileLoading}>
                         {profileLoading ? 'Saving...' : <><SaveIcon /> Save Changes</>}
@@ -1936,19 +2387,19 @@ function OwnerDashboard({ user, onLogout }) {
                   <div className="form-group">
                     <label>Current Password</label>
                     <input type="password" value={passwordData.currentPassword}
-                      onChange={(e) => setPasswordData({...passwordData, currentPassword: e.target.value})}
+                      onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
                       placeholder="Enter current password" required />
                   </div>
                   <div className="form-group">
                     <label>New Password</label>
                     <input type="password" value={passwordData.newPassword}
-                      onChange={(e) => setPasswordData({...passwordData, newPassword: e.target.value})}
+                      onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
                       placeholder="Min 6 characters" required minLength={6} />
                   </div>
                   <div className="form-group">
                     <label>Confirm New Password</label>
                     <input type="password" value={passwordData.confirmPassword}
-                      onChange={(e) => setPasswordData({...passwordData, confirmPassword: e.target.value})}
+                      onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
                       placeholder="Confirm new password" required minLength={6} />
                   </div>
                   <button type="submit" className="btn-save-password" disabled={profileLoading}>
@@ -2045,22 +2496,16 @@ function OwnerDashboard({ user, onLogout }) {
 
                   <div className="payment-status-buttons">
                     <button
-                      className={`payment-status-btn ${reviewingOrder.payment_status === 'valid' ? 'active' : ''}`}
-                      onClick={() => handleUpdatePaymentStatus(reviewingOrder.id, 'valid')}
+                      className={`payment-status-btn ${reviewingOrder.payment_status === 'confirmed' ? 'active' : ''}`}
+                      onClick={() => handleUpdatePaymentStatus(reviewingOrder.id, 'confirmed')}
                     >
-                      ✅ Valid
+                      ✅ Confirm
                     </button>
                     <button
-                      className={`payment-status-btn ${reviewingOrder.payment_status === 'underpayment' ? 'active' : ''}`}
-                      onClick={() => handleUpdatePaymentStatus(reviewingOrder.id, 'underpayment')}
+                      className={`payment-status-btn ${reviewingOrder.payment_status === 'rejected' ? 'active' : ''}`}
+                      onClick={() => handleUpdatePaymentStatus(reviewingOrder.id, 'rejected')}
                     >
-                      ⚠️ Underpaid
-                    </button>
-                    <button
-                      className={`payment-status-btn ${reviewingOrder.payment_status === 'overpayment' ? 'active' : ''}`}
-                      onClick={() => handleUpdatePaymentStatus(reviewingOrder.id, 'overpayment')}
-                    >
-                      ⚠️ Overpaid
+                      ❌ Reject
                     </button>
                   </div>
                 </div>
@@ -2120,16 +2565,16 @@ function OwnerDashboard({ user, onLogout }) {
 
                   {reviewingOrder.status === 'pending' && (
                     <div className="review-actions-row">
-                      {reviewingOrder.payment_status !== 'valid' && (
+                      {reviewingOrder.payment_status !== 'confirmed' && (
                         <div className="action-warning">
                           <span className="warning-icon">⚠️</span>
-                          <p>Payment must be verified as <strong>Valid</strong> before you can start preparing this order.</p>
+                          <p>Payment must be <strong>Confirmed</strong> before you can start preparing this order.</p>
                         </div>
                       )}
 
                       <button
                         className="btn btn-primary btn-large"
-                        disabled={reviewingOrder.payment_status !== 'valid'}
+                        disabled={reviewingOrder.payment_status !== 'confirmed'}
                         onClick={() => updateOrderStatus(reviewingOrder.id, 'preparing')}
                       >
                         📦 Start Preparing
@@ -2205,6 +2650,15 @@ function OwnerDashboard({ user, onLogout }) {
         isLoading={confirmModal.isLoading}
         onConfirm={confirmModal.onConfirm}
         onCancel={closeConfirm}
+      />
+
+      {/* 🔔 Employee Success Modal */}
+      <SuccessModal
+        isOpen={employeeSuccessModal.isOpen}
+        title="Employee Account Created!"
+        message="A verification email has been sent. The employee must click the link before signing in. You are still logged in as owner."
+        email={employeeSuccessModal.email}
+        onClose={() => setEmployeeSuccessModal({ isOpen: false, email: '', name: '' })}
       />
     </div>
   );
