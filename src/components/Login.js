@@ -1,3 +1,4 @@
+// src/components/Login.js
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import './Login.css';
@@ -27,43 +28,78 @@ const CheckIcon = () => (
   </svg>
 );
 
-const SuccessModalIcon = () => (
+const MailIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-    <polyline points="22 4 12 14.01 9 11.01"/>
+    <rect x="2" y="4" width="20" height="16" rx="2"/>
+    <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
   </svg>
 );
 
 // ============================================
-// SUCCESS MODAL (shown after signup)
+// EMAIL VERIFICATION MODAL
 // ============================================
-function SuccessModal({ isOpen, email, onProceed }) {
+function VerifyEmailModal({ isOpen, email, onClose, onResend }) {
+  const [resending, setResending] = useState(false);
+  const [resent, setResent] = useState(false);
+
   if (!isOpen) return null;
 
+  const handleResend = async () => {
+    setResending(true);
+    try {
+      await onResend();
+      setResent(true);
+      setTimeout(() => setResent(false), 4000);
+    } finally {
+      setResending(false);
+    }
+  };
+
   return (
-    <div className="success-modal-overlay" onClick={onProceed}>
-      <div className="success-modal-content" onClick={(e) => e.stopPropagation()}>
-        <div className="success-modal-icon">
-          <SuccessModalIcon />
+    <div className="success-modal-overlay" onClick={onClose}>
+      <div className="success-modal-content verify-email-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="success-modal-icon verify-email-icon">
+          <MailIcon />
         </div>
 
-        <h3 className="success-modal-title">Account Registered!</h3>
+        <h3 className="success-modal-title">Verify Your Email</h3>
 
         <p className="success-modal-message">
-          Your account has been created successfully.
-          {email && (
-            <>
-              <br />
-              <span className="success-modal-email">{email}</span>
-            </>
-          )}
+          We've sent a verification link to
           <br />
-          Please sign in to continue.
+          <span className="success-modal-email">{email}</span>
+          <br /><br />
+          Click the link in the email to activate your account.
+          <br />
+          <span style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.5rem', display: 'block' }}>
+            Don't see it? Check your spam folder.
+          </span>
         </p>
 
-        <div className="success-modal-actions">
-          <button className="success-modal-btn" onClick={onProceed}>
-            Proceed to Log In
+        {resent && (
+          <div style={{
+            background: 'rgba(52, 211, 153, 0.1)',
+            border: '1px solid rgba(52, 211, 153, 0.3)',
+            color: '#34d399',
+            padding: '0.6rem 1rem',
+            borderRadius: '10px',
+            fontSize: '0.85rem',
+            marginBottom: '1rem'
+          }}>
+            ✅ Verification email resent!
+          </div>
+        )}
+
+        <div className="success-modal-actions verify-email-actions">
+          <button 
+            className="verify-secondary-btn" 
+            onClick={handleResend}
+            disabled={resending}
+          >
+            {resending ? '⏳ Sending...' : '📧 Resend Email'}
+          </button>
+          <button className="success-modal-btn" onClick={onClose}>
+            Back to Log In
           </button>
         </div>
       </div>
@@ -98,13 +134,12 @@ const Login = ({ onLogin }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
 
-  // Success modal state
-  const [showSignupSuccess, setShowSignupSuccess] = useState(false);
-  const [registeredEmail, setRegisteredEmail] = useState('');
+  // Email verification modal state
+  const [showVerifyEmail, setShowVerifyEmail] = useState(false);
+  const [pendingVerifyEmail, setPendingVerifyEmail] = useState('');
 
   // ============================================
-  // LOAD SAVED CREDENTIALS ON MOUNT
-  // + Clear any stale session on login page load
+  // LOAD SAVED CREDENTIALS + clear stale session
   // ============================================
   useEffect(() => {
     const savedRemember = localStorage.getItem('rememberMe') === 'true';
@@ -119,19 +154,16 @@ const Login = ({ onLogin }) => {
       setRole(savedRole);
     }
 
-    // Clear any lingering Supabase session so a previous failed login
-    // doesn't auto-redirect via App.js's auth listener
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
-        console.log('🧹 Clearing stale session on login page load');
-        supabase.auth.signOut();
+        // If session exists but email isn't verified, sign out
+        if (!session.user.email_confirmed_at) {
+          supabase.auth.signOut();
+        }
       }
     });
   }, []);
 
-  // ============================================
-  // SAVE / CLEAR CREDENTIALS
-  // ============================================
   const saveCredentials = () => {
     localStorage.setItem('rememberMe', 'true');
     localStorage.setItem('rememberedEmail', email);
@@ -146,30 +178,22 @@ const Login = ({ onLogin }) => {
     localStorage.removeItem('rememberedRole');
   };
 
-  // ============================================
-  // SET AUTH-IN-PROGRESS FLAG
-  // (stops App.js from reacting to SIGNED_IN
-  //  before we finish validating the role)
-  // ============================================
   const setAuthInProgress = (val) => {
     if (typeof window.__setAuthInProgress === 'function') {
       window.__setAuthInProgress(val);
     } else if (typeof window.__setSigningUp === 'function') {
-      // Backward-compat alias
       window.__setSigningUp(val);
     }
   };
 
   // ============================================
-  // FORM SUBMIT
+  // SUBMIT
   // ============================================
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setSuccessMessage('');
     setLoading(true);
-
-    // 🔒 Block App.js from reacting to auth events during this flow
     setAuthInProgress(true);
 
     try {
@@ -186,7 +210,8 @@ const Login = ({ onLogin }) => {
             data: {
               name: name || email.split('@')[0],
               role: signUpRole
-            }
+            },
+            emailRedirectTo: window.location.origin
           }
         });
 
@@ -203,68 +228,54 @@ const Login = ({ onLogin }) => {
 
         console.log('✅ Auth user created:', authData.user.id);
 
-        // Wait for the DB trigger to create the profile row
-        await new Promise(resolve => setTimeout(resolve, 800));
-
-        // Fallback: create profile manually if trigger didn't fire
-        let { data: existingUser } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', authData.user.id)
-          .maybeSingle();
-
-        if (!existingUser) {
-          console.log('Creating user profile manually...');
-          const { data: newUser, error: insertError } = await supabase
-            .from('users')
-            .insert([{
-              id: authData.user.id,
-              email: authData.user.email,
-              name: name || authData.user.email.split('@')[0],
-              role: signUpRole
-            }])
-            .select()
-            .maybeSingle();
-
-          if (insertError) {
-            if (insertError.code === '23505') {
-              console.log('Profile already exists, continuing...');
-            } else {
-              console.error('Profile insert error:', insertError);
-            }
-          }
-          existingUser = newUser;
-        }
-
-        // Sign out the auto-created session (Supabase signs in on signUp)
-        console.log('🚪 Signing out the auto-created session...');
+        // Sign out any auto-created session (shouldn't exist with email confirm ON,
+        // but we do this defensively)
         await supabase.auth.signOut();
 
-        // Show success modal
-        setRegisteredEmail(email);
-        setShowSignupSuccess(true);
+        // Show verification modal
+        setPendingVerifyEmail(email);
+        setShowVerifyEmail(true);
 
-        // Reset form (keep email so it's pre-filled for login)
+        // Reset form
         setName('');
         setPassword('');
         setShowPassword(false);
 
       } else {
         // ============================================
-        // SIGN IN FLOW — validate role BEFORE accepting session
+        // SIGN IN FLOW
         // ============================================
         const { data: authData, error: signInError } = await supabase.auth.signInWithPassword({
           email,
           password
         });
 
-        if (signInError) throw signInError;
+        if (signInError) {
+          // Handle unverified email
+          if (
+            signInError.message.toLowerCase().includes('email not confirmed') ||
+            signInError.message.toLowerCase().includes('email not verified')
+          ) {
+            setPendingVerifyEmail(email);
+            setShowVerifyEmail(true);
+            throw new Error('Please verify your email first. Check your inbox for the verification link.');
+          }
+          throw signInError;
+        }
 
         if (!authData.user) {
           throw new Error('Sign in failed. Please try again.');
         }
 
-        // Fetch the user profile from the DB
+        // Double-check email verification
+        if (!authData.user.email_confirmed_at) {
+          await supabase.auth.signOut();
+          setPendingVerifyEmail(email);
+          setShowVerifyEmail(true);
+          throw new Error('Please verify your email before signing in.');
+        }
+
+        // Fetch profile
         const { data: userData, error: userError } = await supabase
           .from('users')
           .select('*')
@@ -272,7 +283,6 @@ const Login = ({ onLogin }) => {
           .maybeSingle();
 
         if (userError) {
-          console.error('Profile fetch error:', userError);
           await supabase.auth.signOut();
           throw new Error('Could not retrieve user profile.');
         }
@@ -282,66 +292,58 @@ const Login = ({ onLogin }) => {
           throw new Error('User profile not found. Please contact support.');
         }
 
-        // ✅ ROLE VALIDATION — the important part
+        // ✅ ROLE VALIDATION
         if (userData.role !== role) {
-          // Sign out immediately so no stale session sticks around
           await supabase.auth.signOut();
-
           const selectedLabel = getRoleLabel(role);
           const actualLabel = getRoleLabel(userData.role);
-
           throw new Error(
             `This account is registered as "${actualLabel}", but you selected "${selectedLabel}". Please select the correct role and try again.`
           );
         }
 
-        // ✅ Role matches — persist credentials and proceed
-        if (rememberMe) {
-          saveCredentials();
-        } else {
-          clearCredentials();
-        }
+        if (rememberMe) saveCredentials();
+        else clearCredentials();
 
-        // Release the flag BEFORE navigating so App.js can resume
         setAuthInProgress(false);
-
-        // Trigger the parent's login handler — this navigates
         onLogin(role, userData);
-        return; // skip the finally flag-release below
+        return;
       }
     } catch (err) {
       console.error('Authentication error:', err);
       setError(err.message || 'An error occurred during authentication');
     } finally {
       setLoading(false);
-      // Always release the flag in case of error
       setAuthInProgress(false);
     }
   };
 
-  // ============================================
-  // TOGGLE SIGN IN / SIGN UP MODE
-  // ============================================
   const handleToggleMode = () => {
     setIsSignUp(!isSignUp);
     setError('');
     setSuccessMessage('');
     setShowPassword(false);
-    if (!isSignUp) {
-      setRole('customer');
+    if (!isSignUp) setRole('customer');
+  };
+
+  const handleResendVerification = async () => {
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: pendingVerifyEmail,
+      options: { emailRedirectTo: window.location.origin }
+    });
+    if (error) {
+      alert('Failed to resend: ' + error.message);
+      throw error;
     }
   };
 
-  // ============================================
-  // "PROCEED TO LOG IN" FROM SUCCESS MODAL
-  // ============================================
-  const handleProceedToLogin = () => {
-    setShowSignupSuccess(false);
+  const handleCloseVerifyModal = () => {
+    setShowVerifyEmail(false);
     setIsSignUp(false);
     setRole('customer');
     setError('');
-    setSuccessMessage('');
-    // Email stays filled so the user only types their password
+    // Email stays so user can resend or log in
   };
 
   // ============================================
@@ -349,7 +351,6 @@ const Login = ({ onLogin }) => {
   // ============================================
   return (
     <div className="login-container">
-      {/* Decorative coffee beans background */}
       <div className="coffee-bg-decoration">
         <span className="coffee-bean">☕</span>
         <span className="coffee-bean">☕</span>
@@ -363,14 +364,9 @@ const Login = ({ onLogin }) => {
 
       <div className="login-wrapper">
         <div className="login-card">
-          {/* Logo / Brand Section */}
           <div className="brand-section">
             <div className="brand-logo-container">
-              <img
-                src={logo}
-                alt="1of1 Coffee"
-                className="brand-logo-image"
-              />
+              <img src={logo} alt="1of1 Coffee" className="brand-logo-image" />
             </div>
             <h1 className="brand-name">1of1 Coffee</h1>
             <p className="brand-tagline">Bombshelter Ordering System</p>
@@ -381,9 +377,7 @@ const Login = ({ onLogin }) => {
             <div className="auth-header">
               <h2>{isSignUp ? 'Create Account' : 'Welcome Back'}</h2>
               <p className="auth-subtitle">
-                {isSignUp
-                  ? 'Join our coffee community'
-                  : 'Sign in to continue your coffee journey'}
+                {isSignUp ? 'Join our coffee community' : 'Sign in to continue your coffee journey'}
               </p>
             </div>
 
@@ -395,7 +389,6 @@ const Login = ({ onLogin }) => {
             )}
 
             <form onSubmit={handleSubmit} className="login-form">
-              {/* Email */}
               <div className="form-group">
                 <label>Email Address</label>
                 <div className="input-wrapper">
@@ -410,7 +403,6 @@ const Login = ({ onLogin }) => {
                 </div>
               </div>
 
-              {/* Password */}
               <div className="form-group">
                 <label>Password</label>
                 <div className="input-wrapper password-wrapper">
@@ -427,8 +419,6 @@ const Login = ({ onLogin }) => {
                     type="button"
                     className="password-toggle-btn"
                     onClick={() => setShowPassword(!showPassword)}
-                    aria-label={showPassword ? 'Hide password' : 'Show password'}
-                    title={showPassword ? 'Hide password' : 'Show password'}
                     tabIndex={-1}
                   >
                     {showPassword ? <EyeOffIcon /> : <EyeIcon />}
@@ -436,7 +426,6 @@ const Login = ({ onLogin }) => {
                 </div>
               </div>
 
-              {/* Remember me — only on Sign In */}
               {!isSignUp && (
                 <div className="form-group">
                   <label className="remember-me-label">
@@ -445,9 +434,7 @@ const Login = ({ onLogin }) => {
                       checked={rememberMe}
                       onChange={(e) => {
                         setRememberMe(e.target.checked);
-                        if (!e.target.checked) {
-                          clearCredentials();
-                        }
+                        if (!e.target.checked) clearCredentials();
                       }}
                       className="remember-me-checkbox"
                     />
@@ -459,7 +446,6 @@ const Login = ({ onLogin }) => {
                 </div>
               )}
 
-              {/* Full Name — only on Sign Up */}
               {isSignUp && (
                 <div className="form-group">
                   <label>Full Name</label>
@@ -476,16 +462,11 @@ const Login = ({ onLogin }) => {
                 </div>
               )}
 
-              {/* Role selector — only on Sign In */}
               {!isSignUp && (
                 <div className="form-group">
                   <label>I am a...</label>
                   <div className="role-select-wrapper">
-                    <select
-                      value={role}
-                      onChange={(e) => setRole(e.target.value)}
-                      className="role-select"
-                    >
+                    <select value={role} onChange={(e) => setRole(e.target.value)} className="role-select">
                       <option value="customer">☕ Customer</option>
                       <option value="employee">👨‍🍳 Employee</option>
                       <option value="owner">👑 Owner</option>
@@ -494,18 +475,16 @@ const Login = ({ onLogin }) => {
                 </div>
               )}
 
-              {/* Sign Up note */}
               {isSignUp && (
                 <div className="signup-note">
                   <span className="note-icon">ℹ️</span>
                   <p>
                     By creating an account, you'll be registered as a <strong>Customer</strong>.
-                    Employee and Owner accounts are managed by the system administrator.
+                    You'll need to <strong>verify your email</strong> before signing in.
                   </p>
                 </div>
               )}
 
-              {/* Error message */}
               {error && (
                 <div className="error-message">
                   <span className="error-icon">⚠️</span>
@@ -513,30 +492,20 @@ const Login = ({ onLogin }) => {
                 </div>
               )}
 
-              {/* Submit button */}
-              <button
-                type="submit"
-                className="login-btn"
-                disabled={loading}
-              >
+              <button type="submit" className="login-btn" disabled={loading}>
                 {loading ? (
                   <span className="loading-spinner">
                     <span className="spinner"></span>
                     Processing...
                   </span>
                 ) : (
-                  <span>
-                    {isSignUp ? '✨ Create Account' : '☕ Sign In'}
-                  </span>
+                  <span>{isSignUp ? '✨ Create Account' : '☕ Sign In'}</span>
                 )}
               </button>
             </form>
 
             <div className="auth-footer">
-              <button
-                className="toggle-auth-btn"
-                onClick={handleToggleMode}
-              >
+              <button className="toggle-auth-btn" onClick={handleToggleMode}>
                 {isSignUp ? (
                   <span>Already have an account? <strong>Sign In</strong></span>
                 ) : (
@@ -547,7 +516,6 @@ const Login = ({ onLogin }) => {
           </div>
         </div>
 
-        {/* Decorative right side */}
         <div className="login-art">
           <div className="art-content">
             <div className="art-icon">☕</div>
@@ -559,28 +527,19 @@ const Login = ({ onLogin }) => {
               <span className="art-line"></span>
             </div>
             <div className="art-features">
-              <div className="art-feature">
-                <span>✦</span>
-                <span>Premium Beans</span>
-              </div>
-              <div className="art-feature">
-                <span>✦</span>
-                <span>Expertly Roasted</span>
-              </div>
-              <div className="art-feature">
-                <span>✦</span>
-                <span>Perfectly Brewed</span>
-              </div>
+              <div className="art-feature"><span>✦</span><span>Premium Beans</span></div>
+              <div className="art-feature"><span>✦</span><span>Expertly Roasted</span></div>
+              <div className="art-feature"><span>✦</span><span>Perfectly Brewed</span></div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Success Modal (after signup) */}
-      <SuccessModal
-        isOpen={showSignupSuccess}
-        email={registeredEmail}
-        onProceed={handleProceedToLogin}
+      <VerifyEmailModal
+        isOpen={showVerifyEmail}
+        email={pendingVerifyEmail}
+        onClose={handleCloseVerifyModal}
+        onResend={handleResendVerification}
       />
     </div>
   );
