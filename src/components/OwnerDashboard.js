@@ -1127,7 +1127,7 @@ function OwnerDashboard({ user, onLogout }) {
 
   const getProductAnalytics = () => {
     const productSales = {};
-    orders.forEach(order => {
+    orders.filter(order => order.status === 'completed').forEach(order => {
       order.order_items?.forEach(item => {
         const productName = item.menu_items?.name || 'Unknown';
         if (!productSales[productName]) {
@@ -1303,6 +1303,26 @@ function OwnerDashboard({ user, onLogout }) {
               </div>
             </div>
           </div>
+
+          <section className="owner-best-sellers" aria-label="Top best-selling products">
+            <div className="owner-best-sellers-heading">
+              <div><span>SALES HIGHLIGHTS</span><h2>🏆 Top Best Sellers</h2><p>Ranked by quantity sold in completed orders.</p></div>
+              <button type="button" className="owner-best-sellers-link" onClick={() => setActiveTab('analytics')}>View Analytics →</button>
+            </div>
+            {analytics.best.length === 0 ? (
+              <div className="owner-best-sellers-empty">No completed sales yet. Best sellers will appear here after orders are completed.</div>
+            ) : (
+              <div className="owner-best-sellers-grid">
+                {analytics.best.map((product, index) => (
+                  <article className="owner-best-seller-card" key={`${product.name}-${index}`}>
+                    <span className="owner-best-seller-rank">{index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'} #{index + 1}</span>
+                    <div className="owner-best-seller-info"><h3>{product.name}</h3><p>{product.category}</p></div>
+                    <strong>{product.sales} sold</strong>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
 
           <div className="orders-toolbar">
             <div className="filter-group">
