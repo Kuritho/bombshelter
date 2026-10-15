@@ -3290,3 +3290,22 @@
   transform: translateY(-2px);
   box-shadow: 0 8px 30px rgba(184, 134, 75, 0.45);
 }
+
+/* Top best-selling products on the owner orders dashboard */
+.owner-best-sellers { margin: 0 0 1.5rem; padding: 1.35rem; border-radius: 16px; border: 1px solid #f0d7c9; background: linear-gradient(135deg, #fff8f3, #ffffff); }
+.owner-best-sellers-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+.owner-best-sellers-heading > div > span { color: #b95f31; font-size: .7rem; font-weight: 800; letter-spacing: .14em; }
+.owner-best-sellers-heading h2 { margin: .25rem 0; color: #33251f; font-size: 1.2rem; }
+.owner-best-sellers-heading p { margin: 0; color: #7c6a61; font-size: .85rem; }
+.owner-best-sellers-link { border: 1px solid #e7b99f; border-radius: 9px; background: #fff; color: #9c4f29; padding: .6rem .8rem; cursor: pointer; font-weight: 700; white-space: nowrap; }
+.owner-best-sellers-link:hover { background: #fff0e6; }
+.owner-best-sellers-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: .85rem; }
+.owner-best-seller-card { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: .55rem; padding: .9rem; border: 1px solid #f1e4dc; border-radius: 12px; background: #fff; }
+.owner-best-seller-rank { grid-column: 1 / -1; color: #a9562c; font-size: .82rem; font-weight: 800; }
+.owner-best-seller-info { min-width: 0; }
+.owner-best-seller-info h3 { margin: 0; color: #33251f; font-size: .92rem; overflow-wrap: anywhere; }
+.owner-best-seller-info p { margin: .25rem 0 0; color: #8b7569; font-size: .76rem; }
+.owner-best-seller-card > strong { color: #276749; font-size: .85rem; white-space: nowrap; }
+.owner-best-sellers-empty { padding: 1rem; border-radius: 10px; background: #fff; color: #8b7569; font-size: .9rem; }
+@media (max-width: 900px) { .owner-best-sellers-grid { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .owner-best-sellers-heading { align-items: flex-start; flex-direction: column; } }
