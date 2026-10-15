@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { createWorker } from 'tesseract.js';
 import { supabase } from '../supabaseClient';
-import { useOrders } from '../hooks/useSupabase';
+import { useOrders, useMenuItems, useCategories } from '../hooks/useSupabase';
 import './EmployeeDashboard.css';
 
 // Import logo
@@ -234,6 +234,8 @@ function EmployeeDashboard({ user, onLogout }) {
   const [notification, setNotification] = useState(null);
   const [notificationType, setNotificationType] = useState('info');
   const [activeTab, setActiveTab] = useState('orders');
+  const { items: menuItems, loading: menuLoading, refetch: refetchMenuItems } = useMenuItems();
+  const { categories, loading: categoriesLoading } = useCategories();
   
   // Profile state
   const [profile, setProfile] = useState({
@@ -654,6 +656,16 @@ function EmployeeDashboard({ user, onLogout }) {
             </span>
           )}
         </button>
+        <button
+          className={`nav-tab ${activeTab === 'menu' ? 'active' : ''}`}
+          onClick={() => {
+            setActiveTab('menu');
+            if (typeof refetchMenuItems === 'function') refetchMenuItems();
+          }}
+        >
+          <span className="employee-nav-emoji">☕</span>
+          <span>Menu</span>
+        </button>
         <button 
           className={`nav-tab ${activeTab === 'profile' ? 'active' : ''}`}
           onClick={() => {
@@ -666,6 +678,77 @@ function EmployeeDashboard({ user, onLogout }) {
           <span>Profile</span>
         </button>
       </nav>
+
+      {/* MENU VIEW */}
+      {activeTab === 'menu' && (
+        <section className="employee-menu-view">
+          <div className="employee-menu-heading">
+            <div>
+              <p className="employee-menu-eyebrow">1of1 Coffee</p>
+              <h2>Our Menu</h2>
+              <p>Browse the products and categories currently listed for customers.</p>
+            </div>
+            <div className="employee-menu-total">{menuItems.length} menu item{menuItems.length !== 1 ? 's' : ''}</div>
+          </div>
+          {(menuLoading || categoriesLoading) ? (
+            <div className="employee-menu-empty">Loading menu...</div>
+          ) : menuItems.length === 0 ? (
+            <div className="employee-menu-empty">
+              <span>☕</span>
+              <h3>No menu items available</h3>
+              <p>Menu items added by the owner will appear here.</p>
+            </div>
+          ) : (
+            <div className="employee-menu-category-list">
+              {categories.filter(category => menuItems.some(item => item.category_id === category.id)).map(category => {
+                const categoryItems = menuItems.filter(item => item.category_id === category.id);
+                return (
+                  <section className="employee-menu-category" key={category.id}>
+                    <div className="employee-menu-category-title" style={{ '--employee-category-color': category.color || '#d97745' }}>
+                      <span className="employee-menu-category-icon">{category.icon || '☕'}</span>
+                      <div>
+                        <h3>{category.name}</h3>
+                        <span>{categoryItems.length} item{categoryItems.length !== 1 ? 's' : ''}</span>
+                      </div>
+                    </div>
+                    <div className="employee-menu-grid">
+                      {categoryItems.map(item => (
+                        <article className="employee-menu-card" key={item.id}>
+                          {item.image_url ? <img className="employee-menu-image" src={item.image_url} alt={item.name} loading="lazy" /> : <div className="employee-menu-image employee-menu-image-placeholder">☕</div>}
+                          <div className="employee-menu-card-content">
+                            <div className="employee-menu-name-price">
+                              <h4>{item.name}</h4>
+                              <strong>₱{Number(item.price || 0).toFixed(2)}</strong>
+                            </div>
+                            <p className="employee-menu-description">{item.description || 'No description available.'}</p>
+                            <div className="employee-menu-card-footer">
+                              <span className={`employee-menu-availability ${item.is_available === false ? 'unavailable' : 'available'}`}>{item.is_available === false ? 'Unavailable' : 'Available'}</span>
+                              {Number(item.avg_rating) > 0 && <span className="employee-menu-rating">★ {Number(item.avg_rating).toFixed(1)} ({item.review_count || 0})</span>}
+                            </div>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                );
+              })}
+              {menuItems.some(item => !categories.some(category => category.id === item.category_id)) && (
+                <section className="employee-menu-category">
+                  <div className="employee-menu-category-title"><span className="employee-menu-category-icon">☕</span><div><h3>Other Items</h3><span>Items without an active category</span></div></div>
+                  <div className="employee-menu-grid">
+                    {menuItems.filter(item => !categories.some(category => category.id === item.category_id)).map(item => (
+                      <article className="employee-menu-card" key={item.id}>
+                        {item.image_url ? <img className="employee-menu-image" src={item.image_url} alt={item.name} loading="lazy" /> : <div className="employee-menu-image employee-menu-image-placeholder">☕</div>}
+                        <div className="employee-menu-card-content"><div className="employee-menu-name-price"><h4>{item.name}</h4><strong>₱{Number(item.price || 0).toFixed(2)}</strong></div><p className="employee-menu-description">{item.description || 'No description available.'}</p><span className={`employee-menu-availability ${item.is_available === false ? 'unavailable' : 'available'}`}>{item.is_available === false ? 'Unavailable' : 'Available'}</span></div>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              )}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Stats Overview */}
       {activeTab === 'orders' && (
