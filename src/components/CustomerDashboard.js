@@ -166,14 +166,6 @@ const PayMayaIcon = () => (
   </svg>
 );
 
-const CashIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="2" y="6" width="20" height="12" rx="2"/>
-    <circle cx="12" cy="12" r="2.5"/>
-    <path d="M6 12h.01M18 12h.01"/>
-  </svg>
-);
-
 // ============================================
 // RATING STARS
 // ============================================
@@ -219,10 +211,113 @@ const getPaymentStatusInfo = (status) => {
 };
 
 // ============================================
-// OCR — Improved parser
-// Permissive name detection (accepts *, ., -)
-// and extra fields: recipient, time, status
+// OCR PARSER — GCash + Maya aware
+// - GCash: "Ref No. 9045 901 644442" → 13 digits
+// - Maya:  "Reference ID  9EB6 47C9 89F9" → 12 alphanumeric (uppercase)
+// - Sender: name (Maya) or phone (GCash)
 // ============================================
+
+const normalizeOcrAlnum = (str) => String(str).toUpperCase();
+
+// Try to extract a reference from a text chunk.
+// Accepts: 13-digit runs (GCash) OR 12-char alphanumeric runs (Maya).
+const matchReference = (text) => {
+  if (!text) return '';
+
+  // Cut at month name / AM / PM — trailing date/time isn't part of the ref
+  const cleaned = String(text)
+    .replace(/\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\b.*$/i, '')
+    .replace(/\b(?:AM|PM)\b.*$/i, '')
+    .trim();
+
+  const tokens = cleaned.split(/\s+/);
+  const tokenIsAlnumRef = (tok) => /^[A-Z0-9]{3,}$/i.test(tok.replace(/[^\w]/g, ''));
+
+  // ---- Maya style: 12 alphanumeric chars, usually 3 groups of 4 ----
+  for (let start = 0; start < tokens.length; start++) {
+    let accumulated = '';
+    for (let j = start; j < Math.min(start + 5, tokens.length); j++) {
+      const raw = tokens[j].replace(/[^\w]/g, '');
+      if (!tokenIsAlnumRef(raw)) break;
+      accumulated += raw.toUpperCase();
+      if (accumulated.length === 12 && /[A-Z]/.test(accumulated) && /\d/.test(accumulated)) {
+        return accumulated;
+      }
+      if (accumulated.length > 12) break;
+    }
+  }
+
+  // ---- GCash style: 13 digits, usually split into digit groups ----
+  for (let start = 0; start < tokens.length; start++) {
+    let accumulated = '';
+    for (let j = start; j < Math.min(start + 5, tokens.length); j++) {
+      const raw = tokens[j].replace(/[^\w]/g, '');
+      if (!/^\d+$/.test(raw)) break;
+      accumulated += raw;
+      if (accumulated.length === 13) return accumulated;
+      if (accumulated.length > 13) break;
+    }
+  }
+
+  // ---- Fallback 1: any 12-char alphanumeric run (letters+digits) ----
+  const compactUpper = cleaned.replace(/[^\w]/g, ' ').toUpperCase();
+  const mayaFallback = compactUpper.match(/\b[A-Z0-9]{12}\b/);
+  if (mayaFallback && /[A-Z]/.test(mayaFallback[0]) && /\d/.test(mayaFallback[0])) {
+    return mayaFallback[0];
+  }
+
+  // ---- Fallback 2: any 13-digit run ----
+  const gcash13 = cleaned.match(/\d{13}/);
+  if (gcash13) return gcash13[0];
+
+  // ---- Fallback 3: any 12-digit run ----
+  const gcash12 = cleaned.match(/\d{12}/);
+  if (gcash12) return gcash12[0];
+
+  return '';
+};
+
+// Sender detection — name (Maya) OR phone (GCash).
+// Returns { value: string, kind: 'name' | 'phone' | 'unknown' }
+const matchSender = (lines, compact) => {
+  const phoneFlexible = /(\+?63[\s-]?\d{3}[\s-]?\d{3}[\s-]?\d{4}|09\d{2}[\s-]?\d{3}[\s-]?\d{4}|09\d{2}[\s-]?\d{4}[\s-]?\d{2}|09[\dX\*]{9}|[\*\d]{2,}[\s-]?[\*\d]{2,}[\s-]?[\*\d]{2,}[\s-]?[\*\d]{2,}|[X\*]{2,}\d{3,})/i;
+
+  const numberLabels = /(?:account\s*(?:number|no\.?|#)|mobile\s*(?:number|no\.?|#)|phone\s*(?:number|no\.?|#)|contact\s*(?:number|no\.?|#)|sender\s*(?:number|no\.?|#)?|from\s*(?:number|no\.?|#)?|gcash\s*(?:number|no\.?|#)?|maya\s*(?:number|no\.?|#)?)\s*[:\-]?\s*/i;
+
+  // 1. Try to find a phone number
+  for (let i = 0; i < lines.length; i++) {
+    if (!numberLabels.test(lines[i])) continue;
+    let candidate = lines[i].replace(numberLabels, '').trim();
+    if (!candidate && lines[i + 1]) candidate = lines[i + 1].trim();
+    candidate = candidate.replace(/[^\d\*\sXx+\-]/g, ' ').trim();
+    const m = candidate.match(phoneFlexible);
+    if (m) return { value: m[1].replace(/\s{2,}/g, ' ').trim(), kind: 'phone' };
+  }
+
+  // Global phone fallback
+  const globalPhone = compact.match(/(\+?63[\s-]?\d{3}[\s-]?\d{3}[\s-]?\d{4}|09\d{2}[\s-]?\d{3}[\s-]?\d{4})/);
+  if (globalPhone) return { value: globalPhone[1].replace(/\s{2,}/g, ' ').trim(), kind: 'phone' };
+
+  // 2. Try to find a sender NAME (Maya style: "- from JANNINE CHRISHA")
+  const nameLabel = /(?:^|\s|[-–])\s*(?:from|sender(?:\s*name)?|paid\s*by|sent\s*by)\s*[:\-]?\s*/i;
+  for (let i = 0; i < lines.length; i++) {
+    if (!nameLabel.test(lines[i])) continue;
+    let candidate = lines[i].replace(nameLabel, '').trim();
+    candidate = candidate.replace(/[^A-Za-zÀ-ÿ\s.'\-]/g, '').trim();
+    if (
+      candidate &&
+      candidate.length >= 3 &&
+      candidate.length <= 80 &&
+      /[A-Za-zÀ-ÿ]/.test(candidate) &&
+      !/^(date|time|amount|reference|transaction|successful|completed|details|total|fee|balance|status|share|help|get)$/i.test(candidate)
+    ) {
+      return { value: candidate, kind: 'name' };
+    }
+  }
+
+  return { value: '', kind: 'unknown' };
+};
+
 const parsePaymentReceiptText = (rawText) => {
   const normalized = String(rawText || '')
     .replace(/\u00a0/g, ' ')
@@ -238,71 +333,70 @@ const parsePaymentReceiptText = (rawText) => {
   const currencyAmounts = [...compact.matchAll(amountPattern)]
     .map(m => Number(m[1].replace(/,/g, '')))
     .filter(v => Number.isFinite(v) && v > 0);
-  const labeledAmount = compact.match(/(?:amount(?:\s+(?:sent|paid|transferred|received))?|total\s+amount|amount\s+of|payment\s+amount|you\s+sent|sent\s+amount)\s*[:\-]?\s*(?:PHP|₱|\bP\.?\s*)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)/i);
-  const totalAmount = compact.match(/\btotal\s*[:\-]?\s*(?:PHP|₱|\bP\.?\s*)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)/i);
+  const labeledAmount = compact.match(
+    /(?:amount(?:\s+(?:sent|paid|transferred|received))?|total\s+amount|amount\s+of|payment\s+amount|you\s+sent|sent\s+amount|sent\s+money)\s*[:\-]?\s*(?:PHP|₱|\bP\.?\s*)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)/i
+  );
+  const totalAmount = compact.match(
+    /\btotal\s*[:\-]?\s*(?:PHP|₱|\bP\.?\s*)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)/i
+  );
+  // Maya line: "– ₱135.00" (currency sign right before amount, no label)
+  const bareAmount = compact.match(/[–\-]\s*(?:PHP|₱|\bP\.?\s*)\s*([0-9][0-9,]*(?:\.\d{1,2})?)/);
   let amount = null;
-  const amountCandidate = labeledAmount || totalAmount;
+  const amountCandidate = labeledAmount || totalAmount || bareAmount;
   if (amountCandidate) {
     const parsed = Number(amountCandidate[1].replace(/,/g, ''));
     if (Number.isFinite(parsed) && parsed > 0) amount = parsed;
   } else if (currencyAmounts.length) amount = currencyAmounts[0];
 
-  // --- Reference number ---
+  // --- Reference (GCash: 13 digits | Maya: 12 alphanumeric) ---
   let reference = '';
-  const refLabel = /(?:reference(?:\s*(?:number|no\.?|#))?|ref\.?\s*(?:number|no\.?|#)?|transaction\s*(?:id|number|no\.?|#)|txn\.?\s*(?:id|no\.?|#)|trace\s*(?:id|number|no\.?|#))/i;
+  const refLabel = /(?:reference(?:\s*(?:id|number|no\.?|#))?|ref\.?\s*(?:number|no\.?|#)?|transaction\s*(?:id|number|no\.?|#)|txn\.?\s*(?:id|no\.?|#)|trace\s*(?:id|number|no\.?|#))/i;
+
   for (let i = 0; i < lines.length && !reference; i++) {
     if (!refLabel.test(lines[i])) continue;
-    let candidate = lines[i].replace(refLabel, '').replace(/^\s*(?:number|no\.?|id|#)?\s*[:#\-]?\s*/i, '').trim();
-    if (!candidate && lines[i + 1]) candidate = lines[i + 1].trim();
-    candidate = candidate.replace(/^(?:number|no\.?|id|#)\s*[:#\-]?\s*/i, '').trim();
-    const token = candidate.match(/[A-Z0-9][A-Z0-9\-]{3,}/i);
-    if (token && !/^(reference|transaction|number|success|completed|payment)$/i.test(token[0])) {
-      reference = token[0].replace(/[.,:;]+$/, '');
+
+    let candidateText = lines[i]
+      .replace(refLabel, '')
+      .replace(/^[\s:#\-\.]+/, '')
+      .trim();
+
+    reference = matchReference(candidateText);
+
+    if (!reference && candidateText.length < 25 && i + 1 < lines.length) {
+      reference = matchReference(lines[i + 1]);
     }
+  }
+
+  // Line-based fallback
+  if (!reference) {
+    for (const line of lines) {
+      const m = line.match(/\bref\b[\s.:#\-]*([A-Z0-9][A-Z0-9\s\-\.]{8,})/i);
+      if (m) {
+        const candidate = matchReference(m[1]);
+        if (candidate) { reference = candidate; break; }
+      }
+    }
+  }
+
+  // Whole-document fallback: any 12-char alphanumeric run (Maya)
+  if (!reference) {
+    const mayaFallback = compact.replace(/[^\w]/g, ' ').toUpperCase().match(/\b[A-Z0-9]{12}\b/);
+    if (mayaFallback && /[A-Z]/.test(mayaFallback[0]) && /\d/.test(mayaFallback[0])) {
+      reference = mayaFallback[0];
+    }
+  }
+  // Whole-document fallback: any 13-digit run (GCash)
+  if (!reference) {
+    const gcash13 = compact.match(/\d{13}/);
+    if (gcash13) reference = gcash13[0];
   }
   if (!reference) {
-    const fallbackRef = compact.match(/\b(?:reference|ref|transaction|txn|trace)\s*(?:number|no\.?|id|#)?\s*[:#\-]?\s*([A-Z0-9][A-Z0-9\-]{5,})/i);
-    if (fallbackRef) reference = fallbackRef[1].replace(/[.,:;]+$/, '');
+    const gcash12 = compact.match(/\d{12}/);
+    if (gcash12) reference = gcash12[0];
   }
 
-  // --- Account / sender name (permissive — accepts * . - ' ,) ---
-  let accountName = '';
-  const nameLabels = /(?:account\s*(?:holder\s*)?name|sender\s*name|sender|paid\s*by|sent\s*by|from\s*name|transfer\s*from|account\s*holder|\bfrom|\bname)\s*[:\-]?\s*/i;
-  for (let i = 0; i < lines.length && !accountName; i++) {
-    if (!nameLabels.test(lines[i])) continue;
-    let candidate = lines[i].replace(nameLabels, '').trim();
-    if (!candidate && lines[i + 1]) candidate = lines[i + 1].trim();
-    // Keep letters (incl. accented), digits, spaces, and * . - ' ,
-    candidate = candidate.replace(/[^A-Za-z0-9À-ÿ*.\-,'\s]/g, '').trim();
-    if (
-      candidate &&
-      candidate.length >= 2 &&
-      candidate.length <= 80 &&
-      /[A-Za-zÀ-ÿ]/.test(candidate) &&
-      !/^(date|time|amount|reference|transaction|successful|completed|details|total|fee|balance|status)$/i.test(candidate)
-    ) {
-      accountName = candidate;
-    }
-  }
-
-  // --- Recipient name (your account) ---
-  let recipientName = '';
-  const recipientLabels = /(?:recipient(?:\s*name)?|receiver(?:\s*name)?|to\s*name|paid\s*to|sent\s*to|transfer\s*to|\bto)\s*[:\-]?\s*/i;
-  for (let i = 0; i < lines.length && !recipientName; i++) {
-    if (!recipientLabels.test(lines[i])) continue;
-    let candidate = lines[i].replace(recipientLabels, '').trim();
-    if (!candidate && lines[i + 1]) candidate = lines[i + 1].trim();
-    candidate = candidate.replace(/[^A-Za-z0-9À-ÿ*.\-,'\s]/g, '').trim();
-    if (
-      candidate &&
-      candidate.length >= 2 &&
-      candidate.length <= 80 &&
-      /[A-Za-zÀ-ÿ]/.test(candidate) &&
-      !/^(date|time|amount|reference|transaction|successful|completed|details|total|fee|balance|status)$/i.test(candidate)
-    ) {
-      recipientName = candidate;
-    }
-  }
+  // --- Sender (name OR phone) ---
+  const sender = matchSender(lines, compact);
 
   // --- Date ---
   const dateRegex = /\b((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[a-z]*\s+\d{1,2}(?:,?\s+\d{4})?|\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}|\d{4}[\/\-.]\d{1,2}[\/\-.]\d{1,2})\b/i;
@@ -332,45 +426,61 @@ const parsePaymentReceiptText = (rawText) => {
     if (m) transactionTime = m[1];
   }
 
-  // --- Status ---
-  let transactionStatus = '';
-  const statusMatch = compact.match(/\b(successful|success|completed|complete|failed|pending|processing)\b/i);
-  if (statusMatch) transactionStatus = statusMatch[1];
-
   return {
     text: normalized,
     amount,
     reference,
-    accountName,
-    recipientName,
+    accountNumber: sender.value,  // kept for backward compatibility
+    senderKind: sender.kind,      // 'name' | 'phone' | 'unknown'
     transactionDate,
-    transactionTime,
-    transactionStatus
+    transactionTime
   };
 };
 
-// Try two Tesseract page layouts to maximize chance of a good read.
+// Multi-pass OCR:
+//  Pass 1 — default layout
+//  Pass 2 — alphanumeric whitelist (best for both GCash digits + Maya letters)
 const recognizePaymentReceipt = async (worker, image) => {
   const candidates = [];
+
+  // Pass 1: default layout
   for (const pageSegMode of ['6', '11']) {
     try {
-      if (worker.setParameters) await worker.setParameters({ tessedit_pageseg_mode: pageSegMode });
-    } catch (parameterError) {
-      console.debug('Could not set Tesseract page segmentation mode:', parameterError);
+      if (worker.setParameters) {
+        await worker.setParameters({
+          tessedit_pageseg_mode: pageSegMode,
+          tessedit_char_whitelist: '',
+        });
+      }
+    } catch (e) { /* ignore */ }
+    const { data } = await worker.recognize(image);
+    const parsed = parsePaymentReceiptText(data?.text || '');
+    const score =
+      [parsed.amount != null, !!parsed.reference, !!parsed.accountNumber,
+       !!parsed.transactionDate, !!parsed.transactionTime].filter(Boolean).length * 1000 +
+      Math.min(parsed.text.length, 999);
+    candidates.push({ parsed, score });
+  }
+
+  // Pass 2: alphanumeric whitelist (helps with both GCash 13-digit and Maya 12-char)
+  try {
+    if (worker.setParameters) {
+      await worker.setParameters({
+        tessedit_pageseg_mode: '6',
+        tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. ',
+      });
     }
     const { data } = await worker.recognize(image);
     const parsed = parsePaymentReceiptText(data?.text || '');
-    const fieldCount = [
-      parsed.amount != null,
-      !!parsed.reference,
-      !!parsed.accountName,
-      !!parsed.recipientName,
-      !!parsed.transactionDate,
-      !!parsed.transactionTime
-    ].filter(Boolean).length;
-    const score = fieldCount * 1000 + Math.min(parsed.text.length, 999);
+    const score =
+      [parsed.amount != null, !!parsed.reference, !!parsed.accountNumber,
+       !!parsed.transactionDate, !!parsed.transactionTime].filter(Boolean).length * 1000 +
+      Math.min(parsed.text.length, 999) + 500;
     candidates.push({ parsed, score });
+  } catch (e) {
+    console.debug('Alphanumeric-restricted OCR pass failed:', e);
   }
+
   candidates.sort((a, b) => b.score - a.score);
   return candidates[0]?.parsed || parsePaymentReceiptText('');
 };
@@ -444,16 +554,14 @@ function CustomerDashboard({ user, onLogout }) {
   const [activeTab, setActiveTab] = useState('menu');
   const [cart, setCart] = useState([]);
   const [orderType, setOrderType] = useState('dine-in');
-
-  // ➕ Payment method — defaults to 'cash' because dine-in is the default order type
-  const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [paymentMethod, setPaymentMethod] = useState('gcash');
 
   const [gcashProof, setGcashProof] = useState(null);
   const [gcashProofPreview, setGcashProofPreview] = useState(null);
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrResult, setOcrResult] = useState({
-    text: '', amount: null, reference: '', accountName: '',
-    recipientName: '', transactionDate: '', transactionTime: '', transactionStatus: ''
+    text: '', amount: null, reference: '', accountNumber: '',
+    senderKind: 'unknown', transactionDate: '', transactionTime: ''
   });
   const [ocrError, setOcrError] = useState('');
   const [reviewForm, setReviewForm] = useState({ orderId: null, rating: 5, text: '' });
@@ -507,9 +615,6 @@ function CustomerDashboard({ user, onLogout }) {
 
   const { orders, createOrder, refresh: refreshOrders } = useOrders(user?.id);
 
-  // ➕ NEW: derived — cash-only when Dine In
-  const isCashOnly = orderType === 'dine-in';
-
   // ============================================
   // CLEANUP BLOB URLS ON UNMOUNT
   // ============================================
@@ -555,8 +660,8 @@ function CustomerDashboard({ user, onLogout }) {
     setGcashProof(file);
     setGcashProofPreview(URL.createObjectURL(file));
     setOcrResult({
-      text: '', amount: null, reference: '', accountName: '',
-      recipientName: '', transactionDate: '', transactionTime: '', transactionStatus: ''
+      text: '', amount: null, reference: '', accountNumber: '',
+      senderKind: 'unknown', transactionDate: '', transactionTime: ''
     });
     setOcrError('');
     setOcrLoading(true);
@@ -582,8 +687,8 @@ function CustomerDashboard({ user, onLogout }) {
     setGcashProof(null);
     setGcashProofPreview(null);
     setOcrResult({
-      text: '', amount: null, reference: '', accountName: '',
-      recipientName: '', transactionDate: '', transactionTime: '', transactionStatus: ''
+      text: '', amount: null, reference: '', accountNumber: '',
+      senderKind: 'unknown', transactionDate: '', transactionTime: ''
     });
     setOcrError('');
     setOcrLoading(false);
@@ -596,7 +701,6 @@ function CustomerDashboard({ user, onLogout }) {
   // ============================================
   const handlePaymentMethodChange = (method) => {
     if (method === paymentMethod) return;
-    if (isCashOnly) return; // guard — should not fire anyway
 
     if (gcashProof) {
       openConfirm({
@@ -805,8 +909,7 @@ function CustomerDashboard({ user, onLogout }) {
   // CHECKOUT
   // ============================================
   const handleCheckout = () => {
-    // ➕ Cash (Dine In) doesn't need a proof
-    if (!isCashOnly && !gcashProof) {
+    if (!gcashProof) {
       alert(`Please upload your ${paymentMethod === 'gcash' ? 'GCash' : 'PayMaya'} payment proof to proceed.`);
       return;
     }
@@ -820,17 +923,9 @@ function CustomerDashboard({ user, onLogout }) {
       .map(item => `• ${item.qty}x ${item.name} — ₱${(item.price * item.qty).toFixed(2)}`)
       .join('\n');
 
-    const paymentLine = isCashOnly
-      ? 'Payment: 💵 Cash (pay at counter)'
-      : `Payment: ${paymentMethod === 'gcash' ? '💙 GCash' : '💚 PayMaya'}`;
-
-    const paymentNote = isCashOnly
-      ? 'Please pay the exact amount at the counter. Staff will confirm your payment.'
-      : "Make sure you've paid the exact amount and uploaded your receipt.";
-
     openConfirm({
       title: 'Place Order?',
-      message: `You are about to place an order:\n\n${itemSummary}\n\nOrder Type: ${orderType === 'takeout' ? '📦 Takeout' : '🍽️ Dine In'}\n${paymentLine}\nTotal: ₱${cartTotal.toFixed(2)}\n\n${paymentNote} This action cannot be undone.`,
+      message: `You are about to place an order:\n\n${itemSummary}\n\nOrder Type: ${orderType === 'takeout' ? '📦 Takeout' : '🍽️ Dine In'}\nPayment: ${paymentMethod === 'gcash' ? '💙 GCash' : '💚 PayMaya'}\nTotal: ₱${cartTotal.toFixed(2)}\n\nMake sure you've paid the exact amount and uploaded your receipt. This action cannot be undone.`,
       confirmText: 'Yes, Place Order',
       cancelText: 'No, Review Again',
       variant: 'warning',
@@ -841,37 +936,27 @@ function CustomerDashboard({ user, onLogout }) {
 
         let ocrSaveWarning = false;
         try {
-          // --------------------------------------------
-          // STEP 1: Upload proof (only when not cash)
-          // --------------------------------------------
+          // STEP 1: Upload proof
+          console.log('🖼️ STEP 1: Uploading proof image...');
           let proofImageUrl = null;
-          if (!isCashOnly) {
-            console.log('🖼️ STEP 1: Uploading proof image...');
-            try {
-              proofImageUrl = await uploadProofImage(gcashProof);
-              console.log('✅ Proof uploaded:', proofImageUrl);
-            } catch (uploadError) {
-              console.error('❌ Proof upload failed:', uploadError);
-              setConfirmModal(prev => ({ ...prev, isLoading: false }));
-              alert('Failed to upload payment proof: ' + uploadError.message);
-              setOrderLoading(false);
-              return;
-            }
-          } else {
-            console.log('💵 Cash order — skipping proof upload');
+          try {
+            proofImageUrl = await uploadProofImage(gcashProof);
+            console.log('✅ Proof uploaded:', proofImageUrl);
+          } catch (uploadError) {
+            console.error('❌ Proof upload failed:', uploadError);
+            setConfirmModal(prev => ({ ...prev, isLoading: false }));
+            alert('Failed to upload payment proof: ' + uploadError.message);
+            setOrderLoading(false);
+            return;
           }
 
-          // --------------------------------------------
           // STEP 2: Create order row
-          // --------------------------------------------
           console.log('📦 STEP 2: Creating order...');
-          const resolvedPaymentMethod = isCashOnly ? 'cash' : paymentMethod;
-
           const orderData = {
             customer_id: user.id,
             status: 'pending',
             payment_status: 'unverified',
-            payment_method: resolvedPaymentMethod,
+            payment_method: paymentMethod,
             total_amount: cartTotal,
             order_type: orderType,
             proof_image_url: proofImageUrl
@@ -889,35 +974,27 @@ function CustomerDashboard({ user, onLogout }) {
             return;
           }
 
-          // --------------------------------------------
-          // STEP 2b: Save OCR (only when not cash)
-          // --------------------------------------------
-          if (!isCashOnly) {
-            const ocrUpdate = {
-              ocr_detected_amount: ocrResult.amount,
-              ocr_reference_number: ocrResult.reference || null,
-              ocr_account_name: ocrResult.accountName || null,
-              ocr_recipient_name: ocrResult.recipientName || null,
-              ocr_transaction_date: ocrResult.transactionDate || null,
-              ocr_transaction_time: ocrResult.transactionTime || null,
-              ocr_transaction_status: ocrResult.transactionStatus || null,
-              ocr_extracted_text: ocrResult.text || null
-            };
-            try {
-              const { error: ocrUpdateError } = await supabase
-                .from('orders')
-                .update(ocrUpdate)
-                .eq('id', newOrder.id);
-              if (ocrUpdateError) throw ocrUpdateError;
-            } catch (ocrUpdateError) {
-              ocrSaveWarning = true;
-              console.warn('Order was created, but OCR fields could not be saved. Run the Supabase OCR migration:', ocrUpdateError.message);
-            }
+          // Save OCR
+          const ocrUpdate = {
+            ocr_detected_amount: ocrResult.amount,
+            ocr_reference_number: ocrResult.reference || null,
+            ocr_account_number: ocrResult.accountNumber || null,
+            ocr_transaction_date: ocrResult.transactionDate || null,
+            ocr_transaction_time: ocrResult.transactionTime || null,
+            ocr_extracted_text: ocrResult.text || null
+          };
+          try {
+            const { error: ocrUpdateError } = await supabase
+              .from('orders')
+              .update(ocrUpdate)
+              .eq('id', newOrder.id);
+            if (ocrUpdateError) throw ocrUpdateError;
+          } catch (ocrUpdateError) {
+            ocrSaveWarning = true;
+            console.warn('Order was created, but OCR fields could not be saved. Run the Supabase OCR migration:', ocrUpdateError.message);
           }
 
-          // --------------------------------------------
           // STEP 3: Insert order items
-          // --------------------------------------------
           console.log('🛒 STEP 3: Inserting order items...');
           const orderItems = cart.map(item => ({
             order_id: newOrder.id,
@@ -940,30 +1017,19 @@ function CustomerDashboard({ user, onLogout }) {
 
           console.log('✅ Order items inserted:', orderItems.length);
 
-          // --------------------------------------------
           // STEP 4: Clear local state
-          // --------------------------------------------
           setCart([]);
           clearProof();
 
-          // --------------------------------------------
-          // STEP 5: Refresh orders from server
-          // --------------------------------------------
+          // STEP 5: Refresh orders
           console.log('🔄 STEP 5: Refreshing orders from server...');
           await refreshOrders();
 
-          // --------------------------------------------
           // STEP 6: Navigate to Orders tab
-          // --------------------------------------------
           setActiveTab('orders');
 
           closeConfirm();
-
-          const successMsg = isCashOnly
-            ? `✅ Order placed successfully!\nOrder #: ${newOrder.order_number || newOrder.id.slice(0, 8)}\n\n💵 Please pay ₱${cartTotal.toFixed(2)} at the counter.`
-            : `✅ Order placed successfully!\nOrder #: ${newOrder.order_number || newOrder.id.slice(0, 8)}${ocrSaveWarning ? '\n\n⚠️ Your order was saved, but OCR details were not saved. Please ask the administrator to run the Supabase OCR migration.' : ''}`;
-
-          alert(successMsg);
+          alert(`✅ Order placed successfully!\nOrder #: ${newOrder.order_number || newOrder.id.slice(0, 8)}${ocrSaveWarning ? '\n\n⚠️ Your order was saved, but OCR details were not saved. Please ask the administrator to run the Supabase OCR migration.' : ''}`);
         } catch (error) {
           console.error('❌ Unexpected checkout error:', error);
           setConfirmModal(prev => ({ ...prev, isLoading: false }));
@@ -1447,20 +1513,13 @@ function CustomerDashboard({ user, onLogout }) {
                   <div className="order-type-options">
                     <button
                       className={`order-type-btn ${orderType === 'dine-in' ? 'active' : ''}`}
-                      onClick={() => {
-                        setOrderType('dine-in');
-                        setPaymentMethod('cash');   // ➕ force cash
-                        clearProof();                // ➕ drop any uploaded proof
-                      }}
+                      onClick={() => setOrderType('dine-in')}
                     >
                       🍽️ Dine In
                     </button>
                     <button
                       className={`order-type-btn ${orderType === 'takeout' ? 'active' : ''}`}
-                      onClick={() => {
-                        setOrderType('takeout');
-                        if (paymentMethod === 'cash') setPaymentMethod('gcash'); // revert to default
-                      }}
+                      onClick={() => setOrderType('takeout')}
                     >
                       📦 Takeout
                     </button>
@@ -1470,182 +1529,158 @@ function CustomerDashboard({ user, onLogout }) {
                 {/* Payment Method */}
                 <div className="payment-method-selector">
                   <label>Payment Method</label>
-                  {isCashOnly ? (
-                    <div className="payment-method-options">
-                      <button
-                        type="button"
-                        className="payment-method-btn cash active"
-                        disabled
-                      >
-                        <CashIcon />
-                        <span>Cash (Dine In)</span>
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="payment-method-options">
-                      <button
-                        className={`payment-method-btn gcash ${paymentMethod === 'gcash' ? 'active' : ''}`}
-                        onClick={() => handlePaymentMethodChange('gcash')}
-                      >
-                        <GCashIcon />
-                        <span>GCash</span>
-                      </button>
-                      <button
-                        className={`payment-method-btn paymaya ${paymentMethod === 'paymaya' ? 'active' : ''}`}
-                        onClick={() => handlePaymentMethodChange('paymaya')}
-                      >
-                        <PayMayaIcon />
-                        <span>PayMaya</span>
-                      </button>
-                    </div>
-                  )}
+                  <div className="payment-method-options">
+                    <button
+                      className={`payment-method-btn gcash ${paymentMethod === 'gcash' ? 'active' : ''}`}
+                      onClick={() => handlePaymentMethodChange('gcash')}
+                    >
+                      <GCashIcon />
+                      <span>GCash</span>
+                    </button>
+                    <button
+                      className={`payment-method-btn paymaya ${paymentMethod === 'paymaya' ? 'active' : ''}`}
+                      onClick={() => handlePaymentMethodChange('paymaya')}
+                    >
+                      <PayMayaIcon />
+                      <span>PayMaya</span>
+                    </button>
+                  </div>
                 </div>
 
-                {/* Payment Section — QR + upload for online, cash info for dine-in */}
-                {!isCashOnly && (
-                  <div className="payment-section">
-                    <h3 className="payment-section-title">
-                      Pay via {paymentMethod === 'gcash' ? 'GCash' : 'PayMaya'}
-                    </h3>
+                {/* Payment Section — QR + upload + OCR */}
+                <div className="payment-section">
+                  <h3 className="payment-section-title">
+                    Pay via {paymentMethod === 'gcash' ? 'GCash' : 'PayMaya'}
+                  </h3>
 
-                    <div className="payment-step">
-                      <div className="step-header">
-                        <span className="step-badge">Step 1</span>
-                        <span className="step-title">Scan the QR code to pay</span>
+                  <div className="payment-step">
+                    <div className="step-header">
+                      <span className="step-badge">Step 1</span>
+                      <span className="step-title">Scan the QR code to pay</span>
+                    </div>
+                    <div className="qr-code-container">
+                      <img
+                        src={paymentMethod === 'gcash' ? gcashQR : paymayaQR}
+                        alt={`${paymentMethod === 'gcash' ? 'GCash' : 'PayMaya'} QR Code`}
+                        className="qr-code-image"
+                      />
+                      <div className="qr-amount-badge">
+                        Total: ₱{cartTotal}
                       </div>
-                      <div className="qr-code-container">
-                        <img
-                          src={paymentMethod === 'gcash' ? gcashQR : paymayaQR}
-                          alt={`${paymentMethod === 'gcash' ? 'GCash' : 'PayMaya'} QR Code`}
-                          className="qr-code-image"
-                        />
-                        <div className="qr-amount-badge">
-                          Total: ₱{cartTotal}
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        className="download-qr-btn"
-                        onClick={downloadQR}
-                      >
-                        <DownloadIcon />
-                        <span>Download QR Code</span>
-                      </button>
-
-                      <p className="step-hint">
-                        Open your {paymentMethod === 'gcash' ? 'GCash' : 'PayMaya'} app → <strong>Scan QR</strong> → Pay <strong>₱{cartTotal}</strong>
-                      </p>
                     </div>
 
-                    <div className="payment-step">
-                      <div className="step-header">
-                        <span className="step-badge">Step 2</span>
-                        <span className="step-title">Upload your receipt / proof of payment</span>
-                      </div>
-                      <div className="gcash-upload">
-                        {gcashProofPreview ? (
-                          <div className="proof-preview">
-                            <img src={gcashProofPreview} alt="Payment proof" />
-                            <button
-                              type="button"
-                              className="remove-proof-btn"
-                              onClick={clearProof}
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="file-upload-wrapper">
-                            <input
-                              id="gcash-proof-input"
-                              type="file"
-                              accept="image/*"
-                              className="file-input"
-                              onChange={handleGcashProofSelect}
-                            />
-                            <div className="file-upload-label">
-                              <UploadIcon />
-                              <span>Click to upload screenshot</span>
-                              <span className="upload-hint">JPG, PNG, WEBP (Max 5MB)</span>
-                            </div>
-                          </div>
-                        )}
-                        {gcashProof && (
-                          <div className="payment-ocr-panel" aria-live="polite">
-                            <strong>Receipt OCR extraction</strong>
-                            {ocrLoading ? (
-                              <p>Reading receipt text… This may take a few seconds.</p>
-                            ) : ocrError ? (
-                              <p className="payment-ocr-warning">{ocrError}</p>
-                            ) : ocrResult.text ? (
-                              <>
-                                <div className="payment-ocr-fields">
-                                  <div>
-                                    <span>Detected amount</span>
-                                    <strong>
-                                      {ocrResult.amount !== null
-                                        ? `₱${ocrResult.amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                                        : 'Not detected'}
-                                    </strong>
-                                  </div>
-                                  <div>
-                                    <span>Reference / transaction no.</span>
-                                    <strong>{ocrResult.reference || 'Not detected'}</strong>
-                                  </div>
-                                  <div>
-                                    <span>Account / sender name</span>
-                                    <strong>{ocrResult.accountName || 'Not detected'}</strong>
-                                  </div>
-                                  <div>
-                                    <span>Recipient name</span>
-                                    <strong>{ocrResult.recipientName || 'Not detected'}</strong>
-                                  </div>
-                                  <div>
-                                    <span>Transaction date</span>
-                                    <strong>{ocrResult.transactionDate || 'Not detected'}</strong>
-                                  </div>
-                                  <div>
-                                    <span>Transaction time</span>
-                                    <strong>{ocrResult.transactionTime || 'Not detected'}</strong>
-                                  </div>
-                                  <div>
-                                    <span>Transaction status</span>
-                                    <strong>{ocrResult.transactionStatus || 'Not detected'}</strong>
-                                  </div>
-                                </div>
-                                {ocrResult.amount !== null && Math.abs(ocrResult.amount - Number(cartTotal)) > 0.009 && (
-                                  <p className="payment-ocr-warning">
-                                    Detected amount differs from your order total (₱{Number(cartTotal).toFixed(2)}). Please check the receipt.
-                                  </p>
-                                )}
-                                <details className="payment-ocr-details">
-                                  <summary>View extracted text</summary>
-                                  <pre>{ocrResult.text}</pre>
-                                </details>
-                                <p className="payment-ocr-disclaimer">
-                                  OCR can make mistakes. The receipt and payment must still be verified by staff.
-                                </p>
-                              </>
-                            ) : (
-                              <p>OCR extraction has not returned text. Please review the screenshot manually.</p>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
+                    <button
+                      type="button"
+                      className="download-qr-btn"
+                      onClick={downloadQR}
+                    >
+                      <DownloadIcon />
+                      <span>Download QR Code</span>
+                    </button>
 
-                {isCashOnly && (
-                  <div className="payment-section cash-info">
-                    <h3 className="payment-section-title">💵 Pay with Cash</h3>
                     <p className="step-hint">
-                      Please pay <strong>₱{cartTotal}</strong> at the counter. Your order will be marked as
-                      <strong> awaiting cash payment</strong> for staff to confirm.
+                      Open your {paymentMethod === 'gcash' ? 'GCash' : 'PayMaya'} app → <strong>Scan QR</strong> → Pay <strong>₱{cartTotal}</strong>
                     </p>
                   </div>
-                )}
+
+                  <div className="payment-step">
+                    <div className="step-header">
+                      <span className="step-badge">Step 2</span>
+                      <span className="step-title">Upload your receipt / proof of payment</span>
+                    </div>
+                    <div className="gcash-upload">
+                      {gcashProofPreview ? (
+                        <div className="proof-preview">
+                          <img src={gcashProofPreview} alt="Payment proof" />
+                          <button
+                            type="button"
+                            className="remove-proof-btn"
+                            onClick={clearProof}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="file-upload-wrapper">
+                          <input
+                            id="gcash-proof-input"
+                            type="file"
+                            accept="image/*"
+                            className="file-input"
+                            onChange={handleGcashProofSelect}
+                          />
+                          <div className="file-upload-label">
+                            <UploadIcon />
+                            <span>Click to upload screenshot</span>
+                            <span className="upload-hint">JPG, PNG, WEBP (Max 5MB)</span>
+                          </div>
+                        </div>
+                      )}
+                      {gcashProof && (
+                        <div className="payment-ocr-panel" aria-live="polite">
+                          <strong>Receipt OCR extraction</strong>
+                          {ocrLoading ? (
+                            <p>Reading receipt text… This may take a few seconds.</p>
+                          ) : ocrError ? (
+                            <p className="payment-ocr-warning">{ocrError}</p>
+                          ) : ocrResult.text ? (
+                            <>
+                              <div className="payment-ocr-fields">
+                                <div>
+                                  <span>Detected amount</span>
+                                  <strong>
+                                    {ocrResult.amount !== null
+                                      ? `₱${ocrResult.amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                      : 'Not detected'}
+                                  </strong>
+                                </div>
+                                <div>
+                                  <span>Reference / transaction no.</span>
+                                  <strong>
+                                    {ocrResult.reference || 'Not detected'}
+                                    {ocrResult.reference &&
+                                      !/^\d{12,13}$/.test(ocrResult.reference) &&
+                                      !/^[A-Z0-9]{12}$/.test(ocrResult.reference) && (
+                                        <span style={{ color: '#fbbf24', marginLeft: '0.5rem', fontSize: '0.75rem' }}>
+                                          ⚠️ unexpected format
+                                        </span>
+                                      )}
+                                  </strong>
+                                </div>
+                                <div>
+                                  <span>Sender</span>
+                                  <strong>{ocrResult.accountNumber || 'Not detected'}</strong>
+                                </div>
+                                <div>
+                                  <span>Transaction date</span>
+                                  <strong>{ocrResult.transactionDate || 'Not detected'}</strong>
+                                </div>
+                                <div>
+                                  <span>Transaction time</span>
+                                  <strong>{ocrResult.transactionTime || 'Not detected'}</strong>
+                                </div>
+                              </div>
+                              {ocrResult.amount !== null && Math.abs(ocrResult.amount - Number(cartTotal)) > 0.009 && (
+                                <p className="payment-ocr-warning">
+                                  Detected amount differs from your order total (₱{Number(cartTotal).toFixed(2)}). Please check the receipt.
+                                </p>
+                              )}
+                              <details className="payment-ocr-details">
+                                <summary>View extracted text</summary>
+                                <pre>{ocrResult.text}</pre>
+                              </details>
+                              <p className="payment-ocr-disclaimer">
+                                OCR can make mistakes. The receipt and payment must still be verified by staff.
+                              </p>
+                            </>
+                          ) : (
+                            <p>OCR extraction has not returned text. Please review the screenshot manually.</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
 
                 <div className="checkout-summary">
                   <div className="checkout-summary-row">
@@ -1659,8 +1694,8 @@ function CustomerDashboard({ user, onLogout }) {
                 </div>
 
                 <button
-                  className={`checkout-btn ${!isCashOnly && !gcashProof ? 'disabled' : ''}`}
-                  disabled={cart.length === 0 || (!isCashOnly && !gcashProof) || orderLoading}
+                  className={`checkout-btn ${!gcashProof ? 'disabled' : ''}`}
+                  disabled={cart.length === 0 || !gcashProof || orderLoading}
                   onClick={handleCheckout}
                 >
                   {orderLoading ? (
@@ -1669,19 +1704,13 @@ function CustomerDashboard({ user, onLogout }) {
                       Processing...
                     </span>
                   ) : (
-                    isCashOnly ? 'Place Order (Pay Cash)' : 'Place Order'
+                    'Place Order'
                   )}
                 </button>
 
-                {!isCashOnly && !gcashProof && (
+                {!gcashProof && (
                   <p className="checkout-hint">
                     ⓘ Please upload your proof of payment to enable checkout.
-                  </p>
-                )}
-
-                {isCashOnly && (
-                  <p className="checkout-hint">
-                    ⓘ Dine-in orders are paid in cash at the counter.
                   </p>
                 )}
               </div>
@@ -1756,7 +1785,6 @@ function CustomerDashboard({ user, onLogout }) {
                           <span className={`payment-method-badge ${order.payment_method}`}>
                             {order.payment_method === 'gcash' && '💙 GCash'}
                             {order.payment_method === 'paymaya' && '💚 PayMaya'}
-                            {order.payment_method === 'cash' && '💵 Cash'}
                           </span>
                         )}
                         <span className={`payment-status-badge ${paymentInfo.className}`}>
@@ -1820,7 +1848,6 @@ function CustomerDashboard({ user, onLogout }) {
                               <span className="detail-info-value">
                                 {order.payment_method === 'gcash' && '💙 GCash'}
                                 {order.payment_method === 'paymaya' && '💚 PayMaya'}
-                                {order.payment_method === 'cash' && '💵 Cash'}
                                 {!order.payment_method && '—'}
                               </span>
                             </div>
