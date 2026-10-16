@@ -3070,3 +3070,40 @@
 .payment-ocr-details summary { cursor: pointer; color: #cbd5e1; }
 .payment-ocr-details pre { margin-top: 0.5rem; max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: #cbd5e1; font: 0.78rem/1.5 monospace; }
 .payment-ocr-disclaimer { margin-top: 0.65rem; color: #94a3b8; font-size: 0.76rem; line-height: 1.45; }
+
+
+/* ============================================ */
+/* CASH PAYMENT METHOD (Dine-In)                */
+/* ============================================ */
+
+.payment-method-btn.cash {
+  background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+  border-color: #16a34a;
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(22, 163, 74, 0.35);
+  cursor: default;
+}
+
+.payment-method-btn.cash:disabled {
+  opacity: 1;
+}
+
+.payment-method-btn.cash svg {
+  color: #ffffff;
+}
+
+.payment-section.cash-info {
+  background: linear-gradient(135deg, rgba(22, 163, 74, 0.08) 0%, rgba(21, 128, 61, 0.03) 100%);
+  border-color: rgba(22, 163, 74, 0.35);
+}
+
+.payment-section.cash-info .payment-section-title {
+  color: #34d399;
+}
+
+/* Cash badge in order history */
+.payment-method-badge.cash {
+  background: rgba(22, 163, 74, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(22, 163, 74, 0.4);
+}
