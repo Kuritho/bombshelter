@@ -1,18 +1,16 @@
-import React, { useState, useEffect } from 'react';
+// src/components/EmployeeDashboard.js
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createWorker } from 'tesseract.js';
 import { supabase } from '../supabaseClient';
 import { useOrders, useMenuItems, useCategories } from '../hooks/useSupabase';
-import {
-  initStorage,
-  uploadImage as uploadImageUtil,
-  testDirectBucketAccess
-} from '../utils/storage';
+import { initStorage, uploadImage as uploadImageUtil, testDirectBucketAccess } from '../utils/storage';
 import './EmployeeDashboard.css';
+import './EmployeePOS.css';
 
 import logo from '../assets/logo.jpg';
 
 // ============================================
-// ICONS (all your existing icons unchanged)
+// ICONS
 // ============================================
 const BellIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -95,7 +93,6 @@ const WarningIcon = () => (
   </svg>
 );
 
-// ➕ NEW: upload icon
 const UploadIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -105,11 +102,10 @@ const UploadIcon = () => (
 );
 
 // ============================================
-// CONFIRMATION MODAL (unchanged)
+// CONFIRMATION MODAL
 // ============================================
 function ConfirmModal({
-  isOpen, title, message,
-  confirmText = 'Yes, Confirm', cancelText = 'No, Cancel',
+  isOpen, title, message, confirmText = 'Yes, Confirm', cancelText = 'No, Cancel',
   onConfirm, onCancel, isLoading = false, variant = 'warning'
 }) {
   if (!isOpen) return null;
@@ -131,156 +127,203 @@ function ConfirmModal({
 }
 
 // ============================================
-// OCR PARSER (improved — see section 4 below)
+// OCR PARSER
 // ============================================
-const parsePaymentReceiptText = (rawText) => {
-  const normalized = String(rawText || '')
-    .replace(/\u00a0/g, ' ')
-    .replace(/[\t ]+/g, ' ')
-    .replace(/\r/g, '\n')
-    .replace(/\n{2,}/g, '\n')
+const matchReference = (text) => {
+  if (!text) return '';
+  const cleaned = String(text)
+    .replace(/\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\b.*$/i, '')
+    .replace(/\b(?:AM|PM)\b.*$/i, '')
     .trim();
+  const tokens = cleaned.split(/\s+/);
+  const tokenIsAlnumRef = (tok) => /^[A-Z0-9]{3,}$/i.test(tok.replace(/[^\w]/g, ''));
+
+  for (let start = 0; start < tokens.length; start++) {
+    let accumulated = '';
+    for (let j = start; j < Math.min(start + 5, tokens.length); j++) {
+      const raw = tokens[j].replace(/[^\w]/g, '');
+      if (!tokenIsAlnumRef(raw)) break;
+      accumulated += raw.toUpperCase();
+      if (accumulated.length === 12 && /[A-Z]/.test(accumulated) && /\d/.test(accumulated)) return accumulated;
+      if (accumulated.length > 12) break;
+    }
+  }
+  for (let start = 0; start < tokens.length; start++) {
+    let accumulated = '';
+    for (let j = start; j < Math.min(start + 5, tokens.length); j++) {
+      const raw = tokens[j].replace(/[^\w]/g, '');
+      if (!/^\d+$/.test(raw)) break;
+      accumulated += raw;
+      if (accumulated.length === 13) return accumulated;
+      if (accumulated.length > 13) break;
+    }
+  }
+  const compactUpper = cleaned.replace(/[^\w]/g, ' ').toUpperCase();
+  const mayaFallback = compactUpper.match(/\b[A-Z0-9]{12}\b/);
+  if (mayaFallback && /[A-Z]/.test(mayaFallback[0]) && /\d/.test(mayaFallback[0])) return mayaFallback[0];
+  const gcash13 = cleaned.match(/\d{13}/); if (gcash13) return gcash13[0];
+  const gcash12 = cleaned.match(/\d{12}/); if (gcash12) return gcash12[0];
+  return '';
+};
+
+const matchSender = (lines, compact) => {
+  const phoneFlexible = /(\+?63[\s-]?\d{3}[\s-]?\d{3}[\s-]?\d{4}|09\d{2}[\s-]?\d{3}[\s-]?\d{4})/i;
+  const numberLabels = /(?:account\s*(?:number|no\.?|#)|mobile\s*(?:number|no\.?|#)|phone\s*(?:number|no\.?|#)|contact\s*(?:number|no\.?|#)|sender|from|gcash|maya)\s*[:\-]?\s*/i;
+  for (let i = 0; i < lines.length; i++) {
+    if (!numberLabels.test(lines[i])) continue;
+    let candidate = lines[i].replace(numberLabels, '').trim();
+    if (!candidate && lines[i + 1]) candidate = lines[i + 1].trim();
+    const m = candidate.match(phoneFlexible);
+    if (m) return { value: m[1].replace(/\s{2,}/g, ' ').trim(), kind: 'phone' };
+  }
+  const globalPhone = compact.match(/(\+?63[\s-]?\d{3}[\s-]?\d{3}[\s-]?\d{4}|09\d{2}[\s-]?\d{3}[\s-]?\d{4})/);
+  if (globalPhone) return { value: globalPhone[1].replace(/\s{2,}/g, ' ').trim(), kind: 'phone' };
+
+  const nameLabel = /(?:^|\s|[-–])\s*(?:from|sender(?:\s*name)?|paid\s*by|sent\s*by)\s*[:\-]?\s*/i;
+  for (let i = 0; i < lines.length; i++) {
+    if (!nameLabel.test(lines[i])) continue;
+    let candidate = lines[i].replace(nameLabel, '').trim().replace(/[^A-Za-zÀ-ÿ\s.'\-]/g, '').trim();
+    if (candidate && candidate.length >= 3 && candidate.length <= 80 && /[A-Za-zÀ-ÿ]/.test(candidate)) {
+      return { value: candidate, kind: 'name' };
+    }
+  }
+  return { value: '', kind: 'unknown' };
+};
+
+const parsePaymentReceiptText = (rawText) => {
+  const normalized = String(rawText || '').replace(/\u00a0/g, ' ').replace(/[\t ]+/g, ' ').replace(/\r/g, '\n').replace(/\n{2,}/g, '\n').trim();
   const lines = normalized.split('\n').map(l => l.trim()).filter(Boolean);
   const compact = normalized.replace(/\n/g, ' ');
 
-  const amountPattern = /(?:PHP|₱|\bP\.?\s*)\s*([0-9][0-9,]*(?:\.\d{1,2})?)/gi;
-  const currencyAmounts = [...compact.matchAll(amountPattern)]
-    .map(m => Number(m[1].replace(/,/g, '')))
-    .filter(v => Number.isFinite(v) && v > 0);
-  const labeledAmount = compact.match(/(?:amount(?:\s+(?:sent|paid|transferred|received))?|total\s+amount|amount\s+of|payment\s+amount|you\s+sent|sent\s+amount)\s*[:\-]?\s*(?:PHP|₱|\bP\.?\s*)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)/i);
+  const labeledAmount = compact.match(/(?:amount(?:\s+(?:sent|paid|transferred|received))?|total\s+amount|amount\s+of|payment\s+amount|you\s+sent|sent\s+amount|sent\s+money)\s*[:\-]?\s*(?:PHP|₱|\bP\.?\s*)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)/i);
   const totalAmount = compact.match(/\btotal\s*[:\-]?\s*(?:PHP|₱|\bP\.?\s*)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)/i);
+  const bareAmount = compact.match(/[–\-]\s*(?:PHP|₱|\bP\.?\s*)\s*([0-9][0-9,]*(?:\.\d{1,2})?)/);
+  const amountCandidate = labeledAmount || totalAmount || bareAmount;
   let amount = null;
-  const amountCandidate = labeledAmount || totalAmount;
   if (amountCandidate) {
     const parsed = Number(amountCandidate[1].replace(/,/g, ''));
     if (Number.isFinite(parsed) && parsed > 0) amount = parsed;
-  } else if (currencyAmounts.length) amount = currencyAmounts[0];
+  }
 
-  // --- Reference number ---
   let reference = '';
-  const refLabel = /(?:reference(?:\s*(?:number|no\.?|#))?|ref\.?\s*(?:number|no\.?|#)?|transaction\s*(?:id|number|no\.?|#)|txn\.?\s*(?:id|no\.?|#)|trace\s*(?:id|number|no\.?|#))/i;
+  const refLabel = /(?:reference(?:\s*(?:id|number|no\.?|#))?|ref\.?\s*(?:number|no\.?|#)?|transaction\s*(?:id|number|no\.?|#)|txn\.?\s*(?:id|no\.?|#)|trace\s*(?:id|number|no\.?|#))/i;
   for (let i = 0; i < lines.length && !reference; i++) {
     if (!refLabel.test(lines[i])) continue;
-    let candidate = lines[i].replace(refLabel, '').replace(/^\s*(?:number|no\.?|id|#)?\s*[:#\-]?\s*/i, '').trim();
-    if (!candidate && lines[i + 1]) candidate = lines[i + 1].trim();
-    candidate = candidate.replace(/^(?:number|no\.?|id|#)\s*[:#\-]?\s*/i, '').trim();
-    const token = candidate.match(/[A-Z0-9][A-Z0-9\-]{3,}/i);
-    if (token && !/^(reference|transaction|number|success|completed|payment)$/i.test(token[0])) {
-      reference = token[0].replace(/[.,:;]+$/, '');
-    }
+    let candidateText = lines[i].replace(refLabel, '').replace(/^[\s:#\-\.]+/, '').trim();
+    reference = matchReference(candidateText);
+    if (!reference && candidateText.length < 25 && i + 1 < lines.length) reference = matchReference(lines[i + 1]);
   }
   if (!reference) {
-    const fallbackRef = compact.match(/\b(?:reference|ref|transaction|txn|trace)\s*(?:number|no\.?|id|#)?\s*[:#\-]?\s*([A-Z0-9][A-Z0-9\-]{5,})/i);
-    if (fallbackRef) reference = fallbackRef[1].replace(/[.,:;]+$/, '');
+    const mayaFallback = compact.replace(/[^\w]/g, ' ').toUpperCase().match(/\b[A-Z0-9]{12}\b/);
+    if (mayaFallback && /[A-Z]/.test(mayaFallback[0]) && /\d/.test(mayaFallback[0])) reference = mayaFallback[0];
   }
+  if (!reference) { const g = compact.match(/\d{13}/); if (g) reference = g[0]; }
 
-  // --- ➕ NEW: Account/sender name (permissive, accepts *, ., -) ---
-  let accountName = '';
-  const nameLabels = /(?:account\s*(?:holder\s*)?name|sender\s*name|sender|paid\s*by|sent\s*by|from\s*name|transfer\s*from|account\s*holder|\bfrom|\bname)\s*[:\-]?\s*/i;
-  for (let i = 0; i < lines.length && !accountName; i++) {
-    if (!nameLabels.test(lines[i])) continue;
-    let candidate = lines[i].replace(nameLabels, '').trim();
-    if (!candidate && lines[i + 1]) candidate = lines[i + 1].trim();
-    // Keep letters, digits, spaces, and the obfuscation characters * . - ' ,
-    candidate = candidate.replace(/[^A-Za-z0-9À-ÿ*.\-,'\s]/g, '').trim();
-    if (
-      candidate &&
-      candidate.length >= 2 &&
-      candidate.length <= 80 &&
-      /[A-Za-zÀ-ÿ]/.test(candidate) &&                    // must contain at least one letter
-      !/^(date|time|amount|reference|transaction|successful|completed|details|total|fee|balance|status)$/i.test(candidate)
-    ) {
-      accountName = candidate;
-    }
-  }
+  const sender = matchSender(lines, compact);
 
-  // --- ➕ NEW: Recipient name (your account) ---
-  let recipientName = '';
-  const recipientLabels = /(?:recipient(?:\s*name)?|receiver(?:\s*name)?|to\s*name|paid\s*to|sent\s*to|transfer\s*to|\bto)\s*[:\-]?\s*/i;
-  for (let i = 0; i < lines.length && !recipientName; i++) {
-    if (!recipientLabels.test(lines[i])) continue;
-    let candidate = lines[i].replace(recipientLabels, '').trim();
-    if (!candidate && lines[i + 1]) candidate = lines[i + 1].trim();
-    candidate = candidate.replace(/[^A-Za-z0-9À-ÿ*.\-,'\s]/g, '').trim();
-    if (
-      candidate &&
-      candidate.length >= 2 &&
-      candidate.length <= 80 &&
-      /[A-Za-zÀ-ÿ]/.test(candidate) &&
-      !/^(date|time|amount|reference|transaction|successful|completed|details|total|fee|balance|status)$/i.test(candidate)
-    ) {
-      recipientName = candidate;
-    }
-  }
-
-  // --- Date ---
-  const dateRegex = /\b((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[a-z]*\s+\d{1,2}(?:,?\s+\d{4})?|\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}|\d{4}[\/\-.]\d{1,2}[\/\-.]\d{1,2})\b/i;
+  const dateRegex = /\b((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[a-z]*\s+\d{1,2}(?:,?\s+\d{4})?|\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})\b/i;
   let transactionDate = '';
-  for (let i = 0; i < lines.length && !transactionDate; i++) {
-    if (/\b(date|transaction date|paid on|sent on|completed on)\b/i.test(lines[i])) {
-      const m = lines[i].match(dateRegex) || (lines[i + 1] || '').match(dateRegex);
-      if (m) transactionDate = m[1];
-    }
-  }
-  if (!transactionDate) {
-    const m = normalized.match(dateRegex);
-    if (m) transactionDate = m[1];
-  }
+  const dm = normalized.match(dateRegex); if (dm) transactionDate = dm[1];
 
-  // --- ➕ NEW: Time ---
   const timeRegex = /\b(\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM|am|pm)?)\b/;
   let transactionTime = '';
-  for (let i = 0; i < lines.length && !transactionTime; i++) {
-    if (/\b(time|transaction time|paid at|sent at|completed at)\b/i.test(lines[i])) {
-      const m = lines[i].match(timeRegex) || (lines[i + 1] || '').match(timeRegex);
-      if (m) transactionTime = m[1];
-    }
-  }
-  if (!transactionTime) {
-    const m = normalized.match(timeRegex);
-    if (m) transactionTime = m[1];
-  }
-
-  // --- ➕ NEW: Transaction status ---
-  let transactionStatus = '';
-  const statusMatch = compact.match(/\b(successful|success|completed|complete|failed|pending|processing)\b/i);
-  if (statusMatch) transactionStatus = statusMatch[1];
+  const tm = normalized.match(timeRegex); if (tm) transactionTime = tm[1];
 
   return {
-    text: normalized,
-    amount,
-    reference,
-    accountName,
-    recipientName,
-    transactionDate,
-    transactionTime,
-    transactionStatus
+    text: normalized, amount, reference,
+    accountNumber: sender.value, senderKind: sender.kind,
+    transactionDate, transactionTime
   };
 };
 
 const recognizePaymentReceipt = async (worker, image) => {
   const candidates = [];
   for (const pageSegMode of ['6', '11']) {
-    try {
-      if (worker.setParameters) await worker.setParameters({ tessedit_pageseg_mode: pageSegMode });
-    } catch (parameterError) {
-      console.debug('Could not set Tesseract page segmentation mode:', parameterError);
-    }
+    try { if (worker.setParameters) await worker.setParameters({ tessedit_pageseg_mode: pageSegMode, tessedit_char_whitelist: '' }); } catch {}
     const { data } = await worker.recognize(image);
     const parsed = parsePaymentReceiptText(data?.text || '');
-    const fieldCount = [
-      parsed.amount != null,
-      !!parsed.reference,
-      !!parsed.accountName,
-      !!parsed.recipientName,
-      !!parsed.transactionDate,
-      !!parsed.transactionTime
-    ].filter(Boolean).length;
-    const score = fieldCount * 1000 + Math.min(parsed.text.length, 999);
+    const score = [parsed.amount != null, !!parsed.reference, !!parsed.accountNumber].filter(Boolean).length * 1000 + Math.min(parsed.text.length, 999);
     candidates.push({ parsed, score });
   }
+  try {
+    if (worker.setParameters) await worker.setParameters({ tessedit_pageseg_mode: '6', tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. ' });
+    const { data } = await worker.recognize(image);
+    const parsed = parsePaymentReceiptText(data?.text || '');
+    const score = [parsed.amount != null, !!parsed.reference, !!parsed.accountNumber].filter(Boolean).length * 1000 + Math.min(parsed.text.length, 999) + 500;
+    candidates.push({ parsed, score });
+  } catch {}
   candidates.sort((a, b) => b.score - a.score);
   return candidates[0]?.parsed || parsePaymentReceiptText('');
+};
+
+// ============================================
+// ROBUST RECEIPT URL FINDER
+// ============================================
+// Checks many possible field names, nested objects, and scans
+// for any key containing "proof" / "receipt" / "screenshot" / "slip"
+const getReceiptUrl = (order) => {
+  if (!order) return null;
+
+  // 1. Explicit list of known column names (add yours here if you find it)
+  const knownFields = [
+    'payment_proof_url',
+    'payment_receipt_url',
+    'receipt_url',
+    'payment_proof',
+    'proof_of_payment',
+    'proof_of_payment_url',
+    'payment_proof_image',
+    'payment_proof_image_url',
+    'payment_image',
+    'payment_image_url',
+    'payment_screenshot',
+    'payment_screenshot_url',
+    'receipt_image',
+    'receipt_image_url',
+    'proof_image',
+    'proof_image_url',
+    'slip_url',
+    'payment_slip',
+    'payment_slip_url',
+    'gcash_receipt',
+    'gcash_receipt_url',
+    'maya_receipt',
+    'maya_receipt_url',
+    'screenshot_url',
+    'image_url',
+    'proof_url',
+  ];
+
+  for (const field of knownFields) {
+    const val = order[field];
+    if (val && typeof val === 'string' && val.trim()) return val.trim();
+  }
+
+  // 2. Also check for a nested `payments` or `payment` object
+  const nested = order.payments || order.payment || order.order_payment;
+  if (nested && typeof nested === 'object') {
+    const nestedUrl = getReceiptUrl(nested);
+    if (nestedUrl) return nestedUrl;
+  }
+
+  // 3. Last resort: scan every key on the order for one that looks like a proof URL
+  try {
+    for (const key of Object.keys(order)) {
+      const lower = key.toLowerCase();
+      if (
+        (lower.includes('proof') ||
+          lower.includes('receipt') ||
+          lower.includes('screenshot') ||
+          lower.includes('slip')) &&
+        typeof order[key] === 'string' &&
+        order[key].trim()
+      ) {
+        return order[key].trim();
+      }
+    }
+  } catch {}
+
+  return null;
 };
 
 // ============================================
@@ -294,14 +337,21 @@ function EmployeeDashboard({ user, onLogout }) {
   const [activeTab, setActiveTab] = useState('orders');
 
   const { items: menuItems, loading: menuLoading, refetch: refetchMenuItems } = useMenuItems();
-  const { categories, loading: categoriesLoading, refetch: refetchCategories } = useCategories();
-  // ➕ NEW: addMenuItem from the hook
-  const { addMenuItem } = useMenuItems();
+  const { categories, loading: categoriesLoading } = useCategories();
+  const { orders, updateOrderStatus, updatePaymentStatus, refresh: refreshOrders } = useOrders();
 
-  // ➕ NEW: Add Product form state
-  const [uploadForm, setUploadForm] = useState({
-    name: '', category_id: '', price: '', description: '', is_available: true
-  });
+  // ---- POS state ----
+  const [posCart, setPosCart] = useState([]);
+  const [posOrderType, setPosOrderType] = useState('dine-in');
+  const [posPaymentMethod, setPosPaymentMethod] = useState('cash');
+  const [posWalkInName, setPosWalkInName] = useState('');
+  const [posCategory, setPosCategory] = useState('all');
+  const [posSearch, setPosSearch] = useState('');
+  const [posSubmitting, setPosSubmitting] = useState(false);
+  const [posLastOrder, setPosLastOrder] = useState(null);
+
+  // ---- Add Product state ----
+  const [uploadForm, setUploadForm] = useState({ name: '', category_id: '', price: '', description: '', is_available: true });
   const [selectedImage, setSelectedImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -309,374 +359,531 @@ function EmployeeDashboard({ user, onLogout }) {
   const [bucketExists, setBucketExists] = useState(false);
   const [storageInitialized, setStorageInitialized] = useState(false);
   const [storageError, setStorageError] = useState(null);
+  const { addMenuItem } = useMenuItems();
 
-  // Profile state
-  const [profile, setProfile] = useState({
-    name: user?.name || '',
-    email: user?.email || '',
-  });
-  const [passwordData, setPasswordData] = useState({
-    currentPassword: '', newPassword: '', confirmPassword: '',
-  });
+  const [profile, setProfile] = useState({ name: user?.name || '', email: user?.email || '' });
+  const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileSuccess, setProfileSuccess] = useState('');
   const [profileError, setProfileError] = useState('');
   const [isEditingProfile, setIsEditingProfile] = useState(false);
 
+  // ---- Order Review Modal state ----
+  const [reviewOrder, setReviewOrder] = useState(null);
+  const [reviewOcr, setReviewOcr] = useState(null);
+  const [reviewOcrRunning, setReviewOcrRunning] = useState(false);
+  const [reviewOcrRaw, setReviewOcrRaw] = useState('');
+  const [reviewOcrError, setReviewOcrError] = useState('');
+  const [receiptViewerUrl, setReceiptViewerUrl] = useState(null);
+  const [reviewActionLoading, setReviewActionLoading] = useState(false);
+  const [reviewStatusMsg, setReviewStatusMsg] = useState(null);
+
+  const ocrWorkerRef = useRef(null);
+
   const [confirmModal, setConfirmModal] = useState({
-    isOpen: false, title: '', message: '',
-    confirmText: 'Yes, Confirm', cancelText: 'No, Cancel',
+    isOpen: false, title: '', message: '', confirmText: 'Yes, Confirm', cancelText: 'No, Cancel',
     onConfirm: null, variant: 'warning', isLoading: false
   });
-
   const openConfirm = ({ title, message, confirmText, cancelText, onConfirm, variant = 'warning' }) => {
-    setConfirmModal({
-      isOpen: true, title, message,
-      confirmText: confirmText || 'Yes, Confirm',
-      cancelText: cancelText || 'No, Cancel',
-      onConfirm, variant, isLoading: false
+    setConfirmModal({ isOpen: true, title, message, confirmText: confirmText || 'Yes, Confirm', cancelText: cancelText || 'No, Cancel', onConfirm, variant, isLoading: false });
+  };
+  const closeConfirm = () => setConfirmModal(prev => ({ ...prev, isOpen: false, onConfirm: null, isLoading: false }));
+
+  // ---- POS totals (no discount) ----
+  const posSubtotal = useMemo(() => posCart.reduce((s, i) => s + i.price * i.qty, 0), [posCart]);
+  const posTotal = posSubtotal;
+  const posItemCount = useMemo(() => posCart.reduce((s, i) => s + i.qty, 0), [posCart]);
+
+  // ---- POS filter + group ----
+  const posVisibleItems = useMemo(() => {
+    const q = posSearch.trim().toLowerCase();
+    return menuItems.filter(item => {
+      if (item.is_available === false) return false;
+      if (posCategory !== 'all' && item.category?.slug !== posCategory) return false;
+      if (q && !item.name.toLowerCase().includes(q)) return false;
+      return true;
     });
-  };
+  }, [menuItems, posCategory, posSearch]);
 
-  const closeConfirm = () => {
-    setConfirmModal(prev => ({ ...prev, isOpen: false, onConfirm: null, isLoading: false }));
-  };
+  const posGroupedItems = useMemo(() => {
+    const groups = [];
+    categories.forEach(cat => {
+      const items = posVisibleItems.filter(i => i.category_id === cat.id);
+      if (items.length > 0) groups.push({ category: cat, items });
+    });
+    const orphans = posVisibleItems.filter(i => !categories.some(c => c.id === i.category_id));
+    if (orphans.length > 0) {
+      groups.push({
+        category: { id: '__other__', slug: 'other', name: 'Other Items', icon: '☕', color: '#64748b' },
+        items: orphans
+      });
+    }
+    return groups;
+  }, [posVisibleItems, categories]);
 
-  const {
-    orders,
-    updateOrderStatus,
-    updatePaymentStatus,
-    refresh: refreshOrders
-  } = useOrders();
-
-  // ➕ NEW: check storage bucket on mount
+  // ---- Storage init ----
   useEffect(() => {
-    const checkStorage = async () => {
+    const check = async () => {
       try {
-        setStorageInitialized(false);
-        setStorageError(null);
-        const initialized = await initStorage();
-        if (initialized) {
-          const accessible = await testDirectBucketAccess();
-          setBucketExists(accessible);
-          if (!accessible) setStorageError('Storage bucket is not accessible.');
-        } else {
-          setBucketExists(false);
-          setStorageError('Storage bucket "product-images" not found.');
-        }
+        setStorageInitialized(false); setStorageError(null);
+        const ok = await initStorage();
+        if (ok) {
+          const acc = await testDirectBucketAccess();
+          setBucketExists(acc);
+          if (!acc) setStorageError('Storage bucket not accessible.');
+        } else { setBucketExists(false); setStorageError('Storage bucket "product-images" not found.'); }
         setStorageInitialized(true);
-      } catch (error) {
-        setStorageError(error.message || 'Failed to initialize storage');
-        setStorageInitialized(true);
-        setBucketExists(false);
-      }
+      } catch (e) { setStorageError(e.message || 'Storage init failed'); setStorageInitialized(true); setBucketExists(false); }
     };
-    checkStorage();
+    check();
   }, []);
 
-  // ➕ NEW: blob URL cleanup
-  useEffect(() => {
-    return () => {
-      if (imagePreview?.startsWith('blob:')) URL.revokeObjectURL(imagePreview);
-    };
-  }, [imagePreview]);
+  useEffect(() => () => { if (imagePreview?.startsWith('blob:')) URL.revokeObjectURL(imagePreview); }, [imagePreview]);
 
-  // Real-time subscription for new orders
+  // ---- Cleanup OCR worker on unmount ----
+  useEffect(() => () => {
+    if (ocrWorkerRef.current) {
+      try { ocrWorkerRef.current.terminate(); } catch {}
+      ocrWorkerRef.current = null;
+    }
+  }, []);
+
+  // ---- Realtime: refresh on ANY order change (insert, update, delete) ----
   useEffect(() => {
-    const subscription = supabase
-      .channel('orders-channel')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, (payload) => {
-        setNotificationType('success');
-        setNotification(`📦 New Order Received from ${payload.new.users?.name || 'Customer'}`);
-        refreshOrders();
-        setTimeout(() => setNotification(null), 5000);
-      })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders', filter: 'status=eq.pending' }, () => {
-        refreshOrders();
-      })
+    const sub = supabase.channel('orders-channel')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'orders' },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            setNotificationType('success');
+            setNotification(
+              `📦 New Order from ${
+                payload.new?.walk_in_name ||
+                payload.new?.users?.name ||
+                'Customer'
+              }`
+            );
+            setTimeout(() => setNotification(null), 5000);
+          }
+          refreshOrders();
+        }
+      )
       .subscribe();
-    return () => { subscription.unsubscribe(); };
+    return () => sub.unsubscribe();
   }, [refreshOrders]);
 
   // ============================================
-  // ➕ NEW: Add Product handlers
+  // ORDER REVIEW / OCR HANDLERS
   // ============================================
-  const handleImageSelect = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-    if (!validTypes.includes(file.type)) {
-      alert('Please select a valid image file (JPG, PNG, WEBP, or GIF)');
-      e.target.value = '';
-      return;
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      alert('Image size must be less than 5MB');
-      e.target.value = '';
-      return;
-    }
-    if (imagePreview?.startsWith('blob:')) URL.revokeObjectURL(imagePreview);
-    setSelectedImage(file);
-    setImagePreview(URL.createObjectURL(file));
+  const getOcrWorker = async () => {
+    if (ocrWorkerRef.current) return ocrWorkerRef.current;
+    const worker = await createWorker('eng');
+    ocrWorkerRef.current = worker;
+    return worker;
   };
 
-  const uploadImage = async (file) => uploadImageUtil(file);
+  const runReceiptOcr = async (imageUrl) => {
+    if (!imageUrl) return;
+    setReviewOcrRunning(true);
+    setReviewOcrError('');
+    setReviewOcrRaw('');
+    try {
+      const worker = await getOcrWorker();
+      const result = await recognizePaymentReceipt(worker, imageUrl);
+      setReviewOcr(result);
+      setReviewOcrRaw(result.text || '');
+    } catch (e) {
+      setReviewOcrError(e.message || 'OCR failed');
+      setReviewOcr(null);
+    } finally {
+      setReviewOcrRunning(false);
+    }
+  };
+
+  const openOrderReview = (order) => {
+    // ---- DEBUG: inspect the actual order shape ----
+    console.log('🔍 [OrderReview] Full order object:', order);
+    console.log('🔍 [OrderReview] All keys:', Object.keys(order || {}));
+    const url = getReceiptUrl(order);
+    console.log('🖼️ [OrderReview] Detected receipt URL:', url);
+    // ------------------------------------------------
+
+    setReviewOrder(order);
+    setReviewOcr(null);
+    setReviewOcrRaw('');
+    setReviewOcrError('');
+    setReviewStatusMsg(null);
+
+    if (url && order.payment_status !== 'confirmed' && order.payment_status !== 'valid') {
+      runReceiptOcr(url);
+    }
+  };
+
+  const closeOrderReview = () => {
+    setReviewOrder(null);
+    setReviewOcr(null);
+    setReviewOcrRaw('');
+    setReviewOcrError('');
+    setReviewStatusMsg(null);
+  };
+
+  const handleReviewPayment = (status) => {
+    if (!reviewOrder) return;
+    const label = status === 'confirmed' ? 'Accept' : 'Reject';
+    openConfirm({
+      title: `${label} Payment?`,
+      message:
+        status === 'confirmed'
+          ? `Accept the payment proof for Order #${reviewOrder.order_number || reviewOrder.id.slice(0, 8)}?`
+          : `Reject the payment proof for Order #${reviewOrder.order_number || reviewOrder.id.slice(0, 8)}?`,
+      confirmText: `Yes, ${label}`,
+      cancelText: 'Cancel',
+      variant: status === 'confirmed' ? 'warning' : 'danger',
+      onConfirm: async () => {
+        setConfirmModal((p) => ({ ...p, isLoading: true }));
+        setReviewActionLoading(true);
+        try {
+          await updatePaymentStatus(reviewOrder.id, status);
+          setReviewStatusMsg({
+            type: status === 'confirmed' ? 'success' : 'error',
+            text: status === 'confirmed' ? '✅ Payment accepted.' : '❌ Payment rejected.',
+          });
+          setReviewOrder((o) => (o ? { ...o, payment_status: status } : o));
+          await refreshOrders();
+          closeConfirm();
+        } catch (e) {
+          setConfirmModal((p) => ({ ...p, isLoading: false }));
+          setReviewStatusMsg({ type: 'error', text: e.message || 'Update failed' });
+        } finally {
+          setReviewActionLoading(false);
+        }
+      },
+    });
+  };
+
+  const handleReviewOrderStatus = (newStatus) => {
+    if (!reviewOrder) return;
+    const label =
+      { preparing: 'Preparing', processing: 'Processing', completed: 'Completed', declined: 'Declined' }[newStatus] ||
+      newStatus;
+    const destructive = newStatus === 'declined';
+    openConfirm({
+      title: `${label} Order?`,
+      message: `Mark Order #${reviewOrder.order_number || reviewOrder.id.slice(0, 8)} as "${label}"?`,
+      confirmText: `Yes, ${label}`,
+      cancelText: 'No',
+      variant: destructive ? 'danger' : 'warning',
+      onConfirm: async () => {
+        setConfirmModal((p) => ({ ...p, isLoading: true }));
+        setReviewActionLoading(true);
+        try {
+          await updateOrderStatus(reviewOrder.id, newStatus);
+          setReviewStatusMsg({ type: 'success', text: `✅ Order marked ${label}.` });
+          setReviewOrder((o) => (o ? { ...o, status: newStatus } : o));
+          await refreshOrders();
+          closeConfirm();
+          if (newStatus === 'completed' || newStatus === 'declined') {
+            setTimeout(() => closeOrderReview(), 700);
+          }
+        } catch (e) {
+          setConfirmModal((p) => ({ ...p, isLoading: false }));
+          setReviewStatusMsg({ type: 'error', text: e.message || 'Update failed' });
+        } finally {
+          setReviewActionLoading(false);
+        }
+      },
+    });
+  };
+
+  const downloadReceipt = async (url) => {
+    if (!url) return;
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `receipt-${reviewOrder?.order_number || 'order'}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(a.href);
+    } catch (e) {
+      alert('Download failed: ' + e.message);
+    }
+  };
+
+  // ============================================
+  // POS HANDLERS
+  // ============================================
+  const posAddItem = (item) => {
+    setPosCart(prev => {
+      const existing = prev.find(c => c.id === item.id);
+      if (existing) return prev.map(c => c.id === item.id ? { ...c, qty: c.qty + 1 } : c);
+      return [...prev, { id: item.id, name: item.name, price: Number(item.price), image_url: item.image_url, qty: 1 }];
+    });
+  };
+  const posIncrease = (id) => setPosCart(prev => prev.map(c => c.id === id ? { ...c, qty: c.qty + 1 } : c));
+  const posDecrease = (id) => setPosCart(prev => prev.flatMap(c => {
+    if (c.id !== id) return [c];
+    if (c.qty <= 1) return [];
+    return [{ ...c, qty: c.qty - 1 }];
+  }));
+  const posRemove = (id) => setPosCart(prev => prev.filter(c => c.id !== id));
+  const posClearCart = () => {
+    if (posCart.length === 0) return;
+    openConfirm({
+      title: 'Clear POS Cart?',
+      message: 'This will remove all items from the current walk-in order.',
+      confirmText: 'Yes, Clear', cancelText: 'No, Keep',
+      variant: 'danger',
+      onConfirm: () => { closeConfirm(); setPosCart([]); }
+    });
+  };
+
+  const posPlaceOrder = () => {
+    if (posCart.length === 0) { alert('Cart is empty.'); return; }
+    const summary = posCart.map(i => `• ${i.qty}x ${i.name} — ₱${(i.price * i.qty).toFixed(2)}`).join('\n');
+
+    openConfirm({
+      title: 'Place Walk-in Order?',
+      message: `Customer: ${posWalkInName.trim() || 'Walk-in'}\nOrder Type: ${posOrderType === 'takeout' ? '📦 Takeout' : '🍽️ Dine In'}\nPayment: 💵 Cash\n\n${summary}\n\nTotal: ₱${posTotal.toFixed(2)}\n\nThis will send the order straight to the kitchen queue.`,
+      confirmText: 'Yes, Place Order',
+      cancelText: 'No, Review',
+      variant: 'warning',
+      onConfirm: async () => {
+        setConfirmModal(prev => ({ ...prev, isLoading: true }));
+        setPosSubmitting(true);
+        try {
+          const orderData = {
+            customer_id: null,
+            walk_in_name: posWalkInName.trim() || 'Walk-in',
+            status: 'pending',
+            payment_status: 'confirmed',
+            payment_method: 'cash',
+            order_type: posOrderType,
+            total_amount: posTotal
+          };
+
+          const { data: newOrder, error: orderErr } = await supabase
+            .from('orders')
+            .insert([orderData])
+            .select()
+            .single();
+
+          if (orderErr) throw orderErr;
+
+          const items = posCart.map(i => ({
+            order_id: newOrder.id,
+            menu_item_id: i.id,
+            quantity: i.qty,
+            price_at_time: i.price
+          }));
+          const { error: itemsErr } = await supabase.from('order_items').insert(items);
+          if (itemsErr) throw itemsErr;
+
+          setPosLastOrder({
+            order: newOrder,
+            items: posCart,
+            subtotal: posSubtotal,
+            total: posTotal,
+            walkInName: posWalkInName.trim() || 'Walk-in'
+          });
+          setPosCart([]);
+          setPosWalkInName('');
+          await refreshOrders();
+          closeConfirm();
+        } catch (e) {
+          setConfirmModal(prev => ({ ...prev, isLoading: false }));
+          alert('❌ Failed to place walk-in order: ' + e.message);
+        } finally {
+          setPosSubmitting(false);
+        }
+      }
+    });
+  };
+
+  const posPrintReceipt = () => {
+    if (!posLastOrder) return;
+    const { order, items, subtotal, total, walkInName } = posLastOrder;
+    const rows = items.map(i =>
+      `<div style="display:flex;justify-content:space-between;margin:2px 0"><span>${i.qty}× ${i.name}</span><span>₱${(i.price * i.qty).toFixed(2)}</span></div>`
+    ).join('');
+
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Receipt</title>
+      <style>
+        body{font-family:'Courier New',monospace;font-size:13px;width:280px;margin:0 auto;padding:12px;color:#000}
+        h1{font-size:16px;text-align:center;margin:0 0 4px}
+        .sub{text-align:center;font-size:11px;margin-bottom:10px}
+        hr{border:none;border-top:1px dashed #000;margin:8px 0}
+        .tot{font-weight:700;font-size:14px}
+      </style></head><body>
+        <h1>1of1 Coffee</h1>
+        <div class="sub">Bombshelter Ordering</div>
+        <hr>
+        <div>Order #: <b>${order.order_number || order.id.slice(0,8)}</b></div>
+        <div>Customer: ${walkInName}</div>
+        <div>Type: ${order.order_type === 'takeout' ? 'Takeout' : 'Dine In'}</div>
+        <div>Date: ${new Date(order.created_at).toLocaleString('en-PH')}</div>
+        <hr>
+        ${rows}
+        <hr>
+        <div style="display:flex;justify-content:space-between"><span>Subtotal</span><span>₱${subtotal.toFixed(2)}</span></div>
+        <div class="tot" style="display:flex;justify-content:space-between;margin-top:6px"><span>TOTAL</span><span>₱${total.toFixed(2)}</span></div>
+        <hr>
+        <div style="text-align:center;font-size:11px;margin-top:8px">Paid via CASH — Thank you!</div>
+      </body></html>`;
+
+    const w = window.open('', '_blank', 'width=380,height=600');
+    if (!w) { alert('Please allow pop-ups to print receipts.'); return; }
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(() => { w.print(); }, 250);
+  };
+
+  // ============================================
+  // ADD PRODUCT
+  // ============================================
+  const handleImageSelect = (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const valid = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (!valid.includes(file.type)) { alert('Please select a valid image file.'); e.target.value = ''; return; }
+    if (file.size > 5 * 1024 * 1024) { alert('Image must be under 5MB.'); e.target.value = ''; return; }
+    if (imagePreview?.startsWith('blob:')) URL.revokeObjectURL(imagePreview);
+    setSelectedImage(file); setImagePreview(URL.createObjectURL(file));
+  };
 
   const handleUploadProduct = (e) => {
     e.preventDefault();
-    if (!uploadForm.name.trim()) { alert('Please enter a product name'); return; }
-    if (!uploadForm.category_id) { alert('Please select a category'); return; }
-    if (!uploadForm.price || parseFloat(uploadForm.price) <= 0) { alert('Please enter a valid price'); return; }
-    if (!uploadForm.description.trim()) { alert('Please enter a product description'); return; }
-    if (!selectedImage) { alert('Please select an image for the product'); return; }
-
-    const selectedCat = categories.find(c => c.id === uploadForm.category_id);
-
+    if (!uploadForm.name.trim() || !uploadForm.category_id || !uploadForm.price || !uploadForm.description.trim() || !selectedImage) {
+      alert('Please fill in all fields and select an image.'); return;
+    }
+    const cat = categories.find(c => c.id === uploadForm.category_id);
     openConfirm({
       title: 'Add New Product?',
-      message: `Add "${uploadForm.name}" (${selectedCat?.name || 'Unknown category'}) at ₱${uploadForm.price}?`,
-      confirmText: 'Yes, Add Product',
-      cancelText: 'No, Cancel',
-      variant: 'warning',
+      message: `Add "${uploadForm.name}" (${cat?.name || 'category'}) at ₱${uploadForm.price}?`,
+      confirmText: 'Yes, Add', cancelText: 'No, Cancel', variant: 'warning',
       onConfirm: async () => {
-        closeConfirm();
-        setUploading(true);
-        setUploadProgress(0);
+        closeConfirm(); setUploading(true); setUploadProgress(0);
         try {
           setUploadProgress(20);
-          const imageUrl = await uploadImage(selectedImage);
+          const imageUrl = await uploadImageUtil(selectedImage);
           setUploadProgress(70);
-
-          const productData = {
+          await addMenuItem({
             name: uploadForm.name.trim(),
-            type: selectedCat?.slug || 'other',
+            type: cat?.slug || 'other',
             category_id: uploadForm.category_id,
             price: parseFloat(uploadForm.price),
             description: uploadForm.description.trim(),
             image_url: imageUrl,
             is_available: uploadForm.is_available,
             created_by: user.id
-          };
-
-          await addMenuItem(productData);
+          });
           setUploadProgress(100);
-
           setUploadForm({ name: '', category_id: '', price: '', description: '', is_available: true });
           if (imagePreview?.startsWith('blob:')) URL.revokeObjectURL(imagePreview);
-          setSelectedImage(null);
-          setImagePreview(null);
-          const fileInput = document.getElementById('employee-product-image-input');
-          if (fileInput) fileInput.value = '';
-
+          setSelectedImage(null); setImagePreview(null);
           await refetchMenuItems();
-          alert('✅ Product added successfully!');
+          alert('✅ Product added!');
           setActiveTab('menu');
-        } catch (error) {
-          alert('❌ Failed to add product: ' + error.message);
-        } finally {
-          setUploading(false);
-          setUploadProgress(0);
-        }
+        } catch (err) {
+          alert('❌ Failed: ' + err.message);
+        } finally { setUploading(false); setUploadProgress(0); }
       }
     });
   };
 
   // ============================================
-  // Existing handlers (logout, profile, payment, order status) — unchanged
+  // LOGOUT / PROFILE
   // ============================================
-  const handleLogout = () => {
-    openConfirm({
-      title: 'Log Out?', message: 'Are you sure you want to log out of your account?',
-      confirmText: 'Yes, Log Out', cancelText: 'No, Stay', variant: 'warning',
-      onConfirm: () => { closeConfirm(); onLogout(); }
-    });
-  };
+  const handleLogout = () => openConfirm({
+    title: 'Log Out?', message: 'Are you sure you want to log out?',
+    confirmText: 'Yes, Log Out', cancelText: 'No, Stay', variant: 'warning',
+    onConfirm: () => { closeConfirm(); onLogout(); }
+  });
 
   const handleProfileUpdate = (e) => {
     e.preventDefault();
     if (profile.name === user?.name) { alert('No changes to save.'); return; }
     openConfirm({
-      title: 'Update Profile?',
-      message: `Are you sure you want to change your name to "${profile.name}"?`,
+      title: 'Update Profile?', message: `Change your name to "${profile.name}"?`,
       confirmText: 'Yes, Update', cancelText: 'No, Cancel', variant: 'warning',
       onConfirm: async () => {
-        closeConfirm();
-        setProfileLoading(true);
-        setProfileError('');
-        setProfileSuccess('');
+        closeConfirm(); setProfileLoading(true); setProfileError(''); setProfileSuccess('');
         try {
-          const { error: updateError } = await supabase
-            .from('users').update({ name: profile.name }).eq('id', user.id);
-          if (updateError) throw updateError;
-          setProfileSuccess('✅ Profile updated successfully!');
-          setIsEditingProfile(false);
-          user.name = profile.name;
+          const { error } = await supabase.from('users').update({ name: profile.name }).eq('id', user.id);
+          if (error) throw error;
+          setProfileSuccess('✅ Profile updated!'); setIsEditingProfile(false); user.name = profile.name;
           setTimeout(() => setProfileSuccess(''), 3000);
-        } catch (err) {
-          setProfileError(err.message || 'Failed to update profile');
-        } finally {
-          setProfileLoading(false);
-        }
+        } catch (err) { setProfileError(err.message || 'Update failed'); }
+        finally { setProfileLoading(false); }
       }
     });
   };
 
   const handlePasswordUpdate = (e) => {
-    e.preventDefault();
-    setProfileError('');
-    setProfileSuccess('');
-    if (passwordData.newPassword !== passwordData.confirmPassword) {
-      setProfileError('New passwords do not match'); return;
-    }
-    if (passwordData.newPassword.length < 6) {
-      setProfileError('New password must be at least 6 characters'); return;
-    }
+    e.preventDefault(); setProfileError(''); setProfileSuccess('');
+    if (passwordData.newPassword !== passwordData.confirmPassword) { setProfileError('Passwords do not match'); return; }
+    if (passwordData.newPassword.length < 6) { setProfileError('Min 6 characters'); return; }
     openConfirm({
-      title: 'Change Password?',
-      message: 'Are you sure you want to change your account password? You will need to use the new password on your next login.',
-      confirmText: 'Yes, Change Password', cancelText: 'No, Cancel', variant: 'warning',
+      title: 'Change Password?', message: 'You will need the new password on next login.',
+      confirmText: 'Yes, Change', cancelText: 'No, Cancel', variant: 'warning',
       onConfirm: async () => {
-        closeConfirm();
-        setProfileLoading(true);
+        closeConfirm(); setProfileLoading(true);
         try {
-          const { error: passwordError } = await supabase.auth.updateUser({ password: passwordData.newPassword });
-          if (passwordError) throw passwordError;
-          setProfileSuccess('✅ Password updated successfully!');
+          const { error } = await supabase.auth.updateUser({ password: passwordData.newPassword });
+          if (error) throw error;
+          setProfileSuccess('✅ Password updated!');
           setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
           setTimeout(() => setProfileSuccess(''), 3000);
-        } catch (err) {
-          setProfileError(err.message || 'Failed to update password');
-        } finally {
-          setProfileLoading(false);
-        }
+        } catch (err) { setProfileError(err.message || 'Update failed'); }
+        finally { setProfileLoading(false); }
       }
     });
   };
 
-  const downloadOcrReport = (order) => {
-    const report = [
-      'PAYMENT RECEIPT OCR REPORT',
-      `Order: ${order.order_number || order.id}`,
-      `Customer: ${order.users?.name || 'Unknown'}`,
-      `Order total: PHP ${Number(order.total_amount || 0).toFixed(2)}`,
-      `Payment method: ${order.payment_method || 'Unknown'}`,
-      `Detected amount: ${order.ocr_detected_amount != null ? `PHP ${Number(order.ocr_detected_amount).toFixed(2)}` : 'Not detected'}`,
-      `Reference / transaction number: ${order.ocr_reference_number || 'Not detected'}`,
-      `Account / sender name: ${order.ocr_account_name || 'Not detected'}`,
-      `Recipient name: ${order.ocr_recipient_name || 'Not detected'}`,
-      `Transaction date: ${order.ocr_transaction_date || 'Not detected'}`,
-      `Transaction time: ${order.ocr_transaction_time || 'Not detected'}`,
-      `Transaction status: ${order.ocr_transaction_status || 'Not detected'}`,
-      `Payment decision: ${order.payment_status || 'unverified'}`,
-      `Generated at: ${new Date().toLocaleString()}`,
-      '',
-      'FULL EXTRACTED TEXT',
-      order.ocr_extracted_text || 'No OCR text is saved for this order.',
-      '',
-      'NOTE: OCR results are estimates only. This report is not proof that a payment was made.'
-    ].join('\n');
-    const blob = new Blob([report], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `payment-ocr-${String(order.order_number || order.id).replace(/[^a-z0-9_-]/gi, '_')}.txt`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
-
-  const runOcrForSelectedOrder = async (order) => {
-    if (!order?.proof_image_url) return;
-    setOcrLoadingOrderId(order.id);
-    let worker;
-    try {
-      const response = await fetch(order.proof_image_url, { mode: 'cors' });
-      if (!response.ok) throw new Error(`Could not load receipt image (HTTP ${response.status}).`);
-      const imageBlob = await response.blob();
-      worker = await createWorker('eng');
-      const extracted = await recognizePaymentReceipt(worker, imageBlob);
-      const update = {
-        ocr_detected_amount: extracted.amount,
-        ocr_reference_number: extracted.reference || null,
-        ocr_account_name: extracted.accountName || null,
-        ocr_recipient_name: extracted.recipientName || null,
-        ocr_transaction_date: extracted.transactionDate || null,
-        ocr_transaction_time: extracted.transactionTime || null,
-        ocr_transaction_status: extracted.transactionStatus || null,
-        ocr_extracted_text: extracted.text || null
-      };
-      const { error } = await supabase.from('orders').update(update).eq('id', order.id);
-      if (error) throw error;
-      const updatedOrder = { ...order, ...update };
-      setSelectedOrder(updatedOrder);
-      await refreshOrders();
-      setNotificationType('success');
-      setNotification(extracted.text ? 'OCR extraction updated. Please review the results manually.' : 'OCR could not read text from this image.');
-      setTimeout(() => setNotification(null), 4500);
-    } catch (error) {
-      console.error('Employee receipt OCR failed:', error);
-      alert(`Could not run OCR on this receipt. ${error.message || ''}`);
-    } finally {
-      if (worker) await worker.terminate();
-      setOcrLoadingOrderId(null);
-    }
-  };
-
+  // ============================================
+  // LEGACY ORDER STATUS HELPERS (kept for safety)
+  // ============================================
   const handleUpdatePaymentStatus = (orderId, status) => {
-    const statusLabels = { confirmed: 'Accept', rejected: 'Reject' };
-    const label = statusLabels[status] || status;
+    const label = status === 'confirmed' ? 'Accept' : 'Reject';
     openConfirm({
       title: `${label} Payment?`,
-      message: status === 'confirmed'
-        ? 'Accept this payment after checking the original receipt and transaction in the payment app?'
-        : 'Reject this payment? The customer will see that the payment was rejected.',
-      confirmText: `Yes, ${label}`, cancelText: 'No, Cancel',
-      variant: status === 'confirmed' ? 'warning' : 'danger',
+      message: status === 'confirmed' ? 'Accept this payment?' : 'Reject this payment?',
+      confirmText: `Yes, ${label}`, cancelText: 'No', variant: status === 'confirmed' ? 'warning' : 'danger',
       onConfirm: async () => {
         setConfirmModal(prev => ({ ...prev, isLoading: true }));
         try {
           await updatePaymentStatus(orderId, status);
-          if (selectedOrder && selectedOrder.id === orderId) setSelectedOrder({ ...selectedOrder, payment_status: status });
+          if (selectedOrder?.id === orderId) setSelectedOrder({ ...selectedOrder, payment_status: status });
           refreshOrders();
-          setNotificationType('info');
-          setNotification(`💳 Payment status updated to: ${label}`);
+          setNotificationType('info'); setNotification(`💳 Payment: ${label}`);
           setTimeout(() => setNotification(null), 3000);
           closeConfirm();
-        } catch (error) {
-          setConfirmModal(prev => ({ ...prev, isLoading: false }));
-          alert('❌ Failed to update payment status: ' + error.message);
-        }
+        } catch (e) { setConfirmModal(prev => ({ ...prev, isLoading: false })); alert(e.message); }
       }
     });
   };
 
   const handleUpdateOrderStatus = (orderId, newStatus) => {
-    const statusLabels = { preparing: 'Preparing', processing: 'Processing', completed: 'Completed', declined: 'Declined' };
-    const label = statusLabels[newStatus] || newStatus;
-    const isDestructive = newStatus === 'declined';
+    const label = ({ preparing: 'Preparing', processing: 'Processing', completed: 'Completed', declined: 'Declined' })[newStatus] || newStatus;
+    const destructive = newStatus === 'declined';
     openConfirm({
-      title: `${label} Order?`,
-      message: isDestructive
-        ? `Are you sure you want to decline this order? The customer will be notified and cannot recover the order.`
-        : `Are you sure you want to mark this order as "${label}"?`,
-      confirmText: `Yes, Mark as ${label}`, cancelText: 'No, Cancel',
-      variant: isDestructive ? 'danger' : 'warning',
+      title: `${label} Order?`, message: `Mark as "${label}"?`,
+      confirmText: `Yes, ${label}`, cancelText: 'No',
+      variant: destructive ? 'danger' : 'warning',
       onConfirm: async () => {
         setConfirmModal(prev => ({ ...prev, isLoading: true }));
         try {
           await updateOrderStatus(orderId, newStatus);
-          if (selectedOrder && selectedOrder.id === orderId) setSelectedOrder({ ...selectedOrder, status: newStatus });
+          if (selectedOrder?.id === orderId) setSelectedOrder({ ...selectedOrder, status: newStatus });
           refreshOrders();
-          setNotificationType('success');
-          setNotification(`✅ Order status updated to: ${label}`);
+          setNotificationType('success'); setNotification(`✅ Order: ${label}`);
           setTimeout(() => setNotification(null), 3000);
           closeConfirm();
-          setTimeout(() => setSelectedOrder(null), 800);
-        } catch (error) {
-          setConfirmModal(prev => ({ ...prev, isLoading: false }));
-          alert('❌ Failed to update order status: ' + error.message);
-        }
+          setTimeout(() => setSelectedOrder(null), 600);
+        } catch (e) { setConfirmModal(prev => ({ ...prev, isLoading: false })); alert(e.message); }
       }
     });
   };
@@ -685,53 +892,56 @@ function EmployeeDashboard({ user, onLogout }) {
 
   const employeeBestSellers = (() => {
     const totals = {};
-    orders.filter(order => order.status === 'completed').forEach(order => {
-      (order.order_items || []).forEach(item => {
-        const product = item.menu_items || {};
-        const key = product.id || product.name || 'unknown';
-        if (!totals[key]) totals[key] = { name: product.name || 'Unknown item', category: product.type || product.category || 'Menu item', sales: 0 };
-        totals[key].sales += Number(item.quantity || 0);
+    orders.filter(o => o.status === 'completed').forEach(o => {
+      (o.order_items || []).forEach(it => {
+        const p = it.menu_items || {};
+        const k = p.id || p.name || 'unknown';
+        if (!totals[k]) totals[k] = { name: p.name || 'Unknown', category: p.type || 'Menu', sales: 0 };
+        totals[k].sales += Number(it.quantity || 0);
       });
     });
     return Object.values(totals).sort((a, b) => b.sales - a.sales).slice(0, 3);
   })();
 
   const renderOrderCard = (order) => (
-    <div key={order.id} className="order-card" onClick={() => setSelectedOrder(order)}>
+    <div
+      key={order.id}
+      className={`order-card ${order.payment_status === 'unverified' || !order.payment_status ? 'needs-review' : ''}`}
+      onClick={() => openOrderReview(order)}
+    >
       <div className="order-card-header">
         <span className="order-id">#{order.order_number || order.id.slice(0, 8)}</span>
         <span className="order-time">{new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
       </div>
       <div className="customer-name">
         <span className="customer-icon">👤</span>
-        {order.users?.name || 'Guest'}
+        {order.walk_in_name || order.users?.name || 'Walk-in'}
       </div>
       <div className="order-items-preview">
-        {order.order_items?.slice(0, 3).map((item, idx) => (
-          <span key={idx} className="item-tag">{item.quantity}x {item.menu_items?.name || 'Item'}</span>
+        {order.order_items?.slice(0, 3).map((it, i) => (
+          <span key={i} className="item-tag">{it.quantity}x {it.menu_items?.name || 'Item'}</span>
         ))}
-        {order.order_items?.length > 3 && (
-          <span className="item-tag more">+{order.order_items.length - 3} more</span>
-        )}
+        {order.order_items?.length > 3 && <span className="item-tag more">+{order.order_items.length - 3} more</span>}
       </div>
       <div className="order-card-footer">
         <span className="order-total">₱{order.total_amount}</span>
         <span className={`payment-status-badge ${order.payment_status}`}>
           {(order.payment_status === 'confirmed' || order.payment_status === 'valid') && '✅ Accepted'}
           {order.payment_status === 'rejected' && '❌ Rejected'}
-          {(order.payment_status === 'unverified' || order.payment_status === 'underpayment' || order.payment_status === 'overpayment' || !order.payment_status) && '⏳ Pending Review'}
+          {(!order.payment_status || order.payment_status === 'unverified') && '⏳ Pending Review'}
         </span>
       </div>
     </div>
   );
 
+  // ============================================
+  // RENDER
+  // ============================================
   return (
     <div className="employee-dashboard">
       {notification && (
         <div className={`notification-toast ${notificationType}`}>
-          <span className="notification-icon">
-            {notificationType === 'success' ? '✅' : notificationType === 'info' ? 'ℹ️' : '🔔'}
-          </span>
+          <span className="notification-icon">{notificationType === 'success' ? '✅' : notificationType === 'info' ? 'ℹ️' : '🔔'}</span>
           <span className="notification-message">{notification}</span>
           <button className="notification-close" onClick={() => setNotification(null)}>×</button>
         </div>
@@ -763,14 +973,18 @@ function EmployeeDashboard({ user, onLogout }) {
             <span className="nav-badge">{orders.filter(o => o.status === 'pending').length}</span>
           )}
         </button>
+
+        <button className={`nav-tab ${activeTab === 'pos' ? 'active' : ''}`} onClick={() => setActiveTab('pos')}>
+          <span className="employee-nav-emoji">🧾</span><span>POS</span>
+          {posCart.length > 0 && <span className="nav-badge">{posItemCount}</span>}
+        </button>
+
         <button className={`nav-tab ${activeTab === 'menu' ? 'active' : ''}`}
-          onClick={() => { setActiveTab('menu'); if (typeof refetchMenuItems === 'function') refetchMenuItems(); }}>
+          onClick={() => { setActiveTab('menu'); refetchMenuItems?.(); }}>
           <span className="employee-nav-emoji">☕</span><span>Menu</span>
         </button>
 
-        {/* ➕ NEW: Add Product tab */}
-        <button className={`nav-tab ${activeTab === 'add-product' ? 'active' : ''}`}
-          onClick={() => setActiveTab('add-product')}>
+        <button className={`nav-tab ${activeTab === 'add-product' ? 'active' : ''}`} onClick={() => setActiveTab('add-product')}>
           <UploadIcon /><span>Add Product</span>
         </button>
 
@@ -780,7 +994,159 @@ function EmployeeDashboard({ user, onLogout }) {
         </button>
       </nav>
 
-      {/* MENU VIEW (unchanged) */}
+      {/* ============ POS TAB ============ */}
+      {activeTab === 'pos' && (
+        <div className="pos-view">
+          <div className="pos-header">
+            <div>
+              <h2>🧾 Walk-in Order (POS)</h2>
+              <p>Take orders for customers at the counter. Cash payment only.</p>
+            </div>
+            <input
+              type="text"
+              className="pos-walkin-input"
+              placeholder="Customer name / Table (optional)"
+              value={posWalkInName}
+              onChange={(e) => setPosWalkInName(e.target.value)}
+              maxLength={40}
+            />
+          </div>
+
+          <div className="pos-search-bar">
+            <span className="pos-search-icon">🔍</span>
+            <input
+              type="text"
+              className="pos-search-input"
+              placeholder="Search menu items…"
+              value={posSearch}
+              onChange={(e) => setPosSearch(e.target.value)}
+            />
+            {posSearch && (
+              <button className="pos-search-clear" onClick={() => setPosSearch('')} title="Clear search">×</button>
+            )}
+          </div>
+
+          {categories.length > 0 && (
+            <div className="pos-category-bar">
+              <button
+                className={`pos-cat-pill ${posCategory === 'all' ? 'active' : ''}`}
+                onClick={() => setPosCategory('all')}
+              >🍽️ All</button>
+              {categories.map(cat => (
+                <button
+                  key={cat.id}
+                  className={`pos-cat-pill ${posCategory === cat.slug ? 'active' : ''}`}
+                  onClick={() => setPosCategory(cat.slug)}
+                  style={posCategory === cat.slug ? { background: cat.color, borderColor: cat.color } : undefined}
+                >
+                  {cat.icon} {cat.name}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="pos-layout">
+            <div className="pos-menu">
+              {menuLoading ? (
+                <p className="pos-empty">Loading menu…</p>
+              ) : posGroupedItems.length === 0 ? (
+                <p className="pos-empty">
+                  {posSearch.trim()
+                    ? `No items match "${posSearch}".`
+                    : 'No items in this category.'}
+                </p>
+              ) : (
+                <div className="pos-category-sections">
+                  {posGroupedItems.map(group => (
+                    <section key={group.category.id} className="pos-category-section">
+                      <div
+                        className="pos-category-heading"
+                        style={{ '--pos-cat-color': group.category.color || '#d97745' }}
+                      >
+                        <span className="pos-category-heading-icon">{group.category.icon || '☕'}</span>
+                        <h3 className="pos-category-heading-name">{group.category.name}</h3>
+                        <span className="pos-category-heading-count">
+                          {group.items.length} item{group.items.length !== 1 ? 's' : ''}
+                        </span>
+                        <div className="pos-category-heading-accent" />
+                      </div>
+
+                      <div className="pos-menu-grid">
+                        {group.items.map(item => (
+                          <button key={item.id} className="pos-menu-card" onClick={() => posAddItem(item)}>
+                            {item.image_url
+                              ? <img src={item.image_url} alt={item.name} className="pos-menu-img" />
+                              : <div className="pos-menu-img pos-menu-placeholder">☕</div>}
+                            <div className="pos-menu-info">
+                              <span className="pos-menu-name">{item.name}</span>
+                              <span className="pos-menu-price">₱{Number(item.price).toFixed(2)}</span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <aside className="pos-cart">
+              <div className="pos-cart-header">
+                <h3>Current Order</h3>
+                {posCart.length > 0 && (
+                  <button className="pos-clear-btn" onClick={posClearCart}>Clear</button>
+                )}
+              </div>
+
+              <div className="pos-type-row">
+                <button
+                  className={`pos-type-btn ${posOrderType === 'dine-in' ? 'active' : ''}`}
+                  onClick={() => setPosOrderType('dine-in')}
+                >🍽️ Dine In</button>
+                <button
+                  className={`pos-type-btn ${posOrderType === 'takeout' ? 'active' : ''}`}
+                  onClick={() => setPosOrderType('takeout')}
+                >📦 Takeout</button>
+              </div>
+
+              <div className="pos-cart-items">
+                {posCart.length === 0 ? (
+                  <p className="pos-empty">Tap items on the left to add them.</p>
+                ) : posCart.map(item => (
+                  <div key={item.id} className="pos-cart-row">
+                    <div className="pos-cart-row-info">
+                      <span className="pos-cart-name">{item.name}</span>
+                      <span className="pos-cart-price">₱{item.price.toFixed(2)}</span>
+                    </div>
+                    <div className="pos-cart-row-qty">
+                      <button className="pos-qty-btn" onClick={() => posDecrease(item.id)}>−</button>
+                      <span>{item.qty}</span>
+                      <button className="pos-qty-btn" onClick={() => posIncrease(item.id)}>+</button>
+                    </div>
+                    <button className="pos-remove-btn" onClick={() => posRemove(item.id)}>×</button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="pos-totals">
+                <div className="pos-total-row"><span>Subtotal</span><span>₱{posSubtotal.toFixed(2)}</span></div>
+                <div className="pos-total-row pos-grand"><span>TOTAL</span><span>₱{posTotal.toFixed(2)}</span></div>
+              </div>
+
+              <button
+                className="pos-place-btn"
+                disabled={posCart.length === 0 || posSubmitting}
+                onClick={posPlaceOrder}
+              >
+                {posSubmitting ? 'Placing…' : `💵 Place Order — ₱${posTotal.toFixed(2)}`}
+              </button>
+              <p className="pos-note">Payment: <strong>Cash</strong> at the counter.</p>
+            </aside>
+          </div>
+        </div>
+      )}
+
+      {/* ============ MENU TAB ============ */}
       {activeTab === 'menu' && (
         <section className="employee-menu-view">
           <div className="employee-menu-heading">
@@ -792,32 +1158,28 @@ function EmployeeDashboard({ user, onLogout }) {
             <div className="employee-menu-total">{menuItems.length} menu item{menuItems.length !== 1 ? 's' : ''}</div>
           </div>
           {(menuLoading || categoriesLoading) ? (
-            <div className="employee-menu-empty">Loading menu...</div>
+            <div className="employee-menu-empty">Loading menu…</div>
           ) : menuItems.length === 0 ? (
-            <div className="employee-menu-empty">
-              <span>☕</span><h3>No menu items available</h3>
-              <p>Menu items added by the owner or staff will appear here.</p>
-            </div>
+            <div className="employee-menu-empty"><span>☕</span><h3>No menu items</h3><p>Items added by owner/staff will appear here.</p></div>
           ) : (
             <div className="employee-menu-category-list">
-              {categories.filter(category => menuItems.some(item => item.category_id === category.id)).map(category => {
-                const categoryItems = menuItems.filter(item => item.category_id === category.id);
+              {categories.filter(c => menuItems.some(i => i.category_id === c.id)).map(cat => {
+                const items = menuItems.filter(i => i.category_id === cat.id);
                 return (
-                  <section className="employee-menu-category" key={category.id}>
-                    <div className="employee-menu-category-title" style={{ '--employee-category-color': category.color || '#d97745' }}>
-                      <span className="employee-menu-category-icon">{category.icon || '☕'}</span>
-                      <div><h3>{category.name}</h3><span>{categoryItems.length} item{categoryItems.length !== 1 ? 's' : ''}</span></div>
+                  <section className="employee-menu-category" key={cat.id}>
+                    <div className="employee-menu-category-title" style={{ '--employee-category-color': cat.color || '#d97745' }}>
+                      <span className="employee-menu-category-icon">{cat.icon || '☕'}</span>
+                      <div><h3>{cat.name}</h3><span>{items.length} item{items.length !== 1 ? 's' : ''}</span></div>
                     </div>
                     <div className="employee-menu-grid">
-                      {categoryItems.map(item => (
+                      {items.map(item => (
                         <article className="employee-menu-card" key={item.id}>
                           {item.image_url ? <img className="employee-menu-image" src={item.image_url} alt={item.name} loading="lazy" /> : <div className="employee-menu-image employee-menu-image-placeholder">☕</div>}
                           <div className="employee-menu-card-content">
                             <div className="employee-menu-name-price">
-                              <h4>{item.name}</h4>
-                              <strong>₱{Number(item.price || 0).toFixed(2)}</strong>
+                              <h4>{item.name}</h4><strong>₱{Number(item.price || 0).toFixed(2)}</strong>
                             </div>
-                            <p className="employee-menu-description">{item.description || 'No description available.'}</p>
+                            <p className="employee-menu-description">{item.description || 'No description.'}</p>
                             <div className="employee-menu-card-footer">
                               <span className={`employee-menu-availability ${item.is_available === false ? 'unavailable' : 'available'}`}>{item.is_available === false ? 'Unavailable' : 'Available'}</span>
                               {Number(item.avg_rating) > 0 && <span className="employee-menu-rating">★ {Number(item.avg_rating).toFixed(1)} ({item.review_count || 0})</span>}
@@ -834,22 +1196,19 @@ function EmployeeDashboard({ user, onLogout }) {
         </section>
       )}
 
-      {/* ➕ NEW: ADD PRODUCT VIEW */}
+      {/* ============ ADD PRODUCT TAB ============ */}
       {activeTab === 'add-product' && (
         <div className="add-product-section">
           <div className="add-product-container">
             <h2>Add New Product</h2>
-
-            {!storageInitialized ? (
-              <div className="storage-loading">⏳ Initializing storage...</div>
-            ) : !bucketExists && (
-              <div className="storage-warning">
-                <strong>⚠️ Storage bucket not found!</strong>
-                <p style={{ marginTop: '0.5rem', fontSize: '0.9rem' }}>Ask the owner to create it in Supabase.</p>
-                {storageError && <p style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>Error: {storageError}</p>}
-              </div>
-            )}
-
+            {!storageInitialized ? <div className="storage-loading">⏳ Initializing storage…</div> :
+              !bucketExists && (
+                <div className="storage-warning">
+                  <strong>⚠️ Storage bucket not found.</strong>
+                  <p>Ask the owner to create it in Supabase.</p>
+                  {storageError && <p>Error: {storageError}</p>}
+                </div>
+              )}
             <form className="product-form" onSubmit={handleUploadProduct}>
               <div className="form-grid">
                 <div className="form-left">
@@ -858,18 +1217,15 @@ function EmployeeDashboard({ user, onLogout }) {
                     <div className="image-upload-area">
                       {imagePreview ? (
                         <div className="image-preview-container">
-                          <img src={imagePreview} alt="Product preview" className="image-preview" />
+                          <img src={imagePreview} alt="preview" className="image-preview" />
                           <button type="button" className="remove-image-btn" onClick={() => {
                             if (imagePreview?.startsWith('blob:')) URL.revokeObjectURL(imagePreview);
                             setSelectedImage(null); setImagePreview(null);
-                            const fileInput = document.getElementById('employee-product-image-input');
-                            if (fileInput) fileInput.value = '';
                           }}>×</button>
                         </div>
                       ) : (
                         <div className="upload-placeholder">
-                          <UploadIcon />
-                          <p>Click to upload product image</p>
+                          <UploadIcon /><p>Click to upload product image</p>
                           <span className="upload-hint">JPG, PNG, WEBP (Max 5MB)</span>
                         </div>
                       )}
@@ -877,58 +1233,42 @@ function EmployeeDashboard({ user, onLogout }) {
                     </div>
                   </div>
                 </div>
-
                 <div className="form-right">
                   <div className="form-group">
                     <label>Product Name *</label>
-                    <input type="text" placeholder="e.g., Mocha Frappuccino" required
-                      value={uploadForm.name} onChange={(e) => setUploadForm({ ...uploadForm, name: e.target.value })} />
+                    <input type="text" required value={uploadForm.name} onChange={(e) => setUploadForm({ ...uploadForm, name: e.target.value })} />
                   </div>
-
                   <div className="form-row">
                     <div className="form-group">
                       <label>Category *</label>
-                      <select required value={uploadForm.category_id}
-                        onChange={(e) => setUploadForm({ ...uploadForm, category_id: e.target.value })}>
-                        <option value="">— Select category —</option>
-                        {categories.map(cat => (
-                          <option key={cat.id} value={cat.id}>{cat.icon} {cat.name}</option>
-                        ))}
+                      <select required value={uploadForm.category_id} onChange={(e) => setUploadForm({ ...uploadForm, category_id: e.target.value })}>
+                        <option value="">— Select —</option>
+                        {categories.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
                       </select>
                     </div>
                     <div className="form-group">
                       <label>Price (₱) *</label>
-                      <input type="number" placeholder="0.00" required min="0" step="0.01"
-                        value={uploadForm.price} onChange={(e) => setUploadForm({ ...uploadForm, price: e.target.value })} />
+                      <input type="number" min="0" step="0.01" required value={uploadForm.price} onChange={(e) => setUploadForm({ ...uploadForm, price: e.target.value })} />
                     </div>
                   </div>
-
                   <div className="form-group">
                     <label>Description *</label>
-                    <textarea placeholder="Describe your product..." rows="4" required
-                      value={uploadForm.description} onChange={(e) => setUploadForm({ ...uploadForm, description: e.target.value })} />
+                    <textarea rows="4" required value={uploadForm.description} onChange={(e) => setUploadForm({ ...uploadForm, description: e.target.value })} />
                   </div>
-
                   <div className="form-group">
                     <label className="checkbox-label">
-                      <input type="checkbox" checked={uploadForm.is_available}
-                        onChange={(e) => setUploadForm({ ...uploadForm, is_available: e.target.checked })} />
+                      <input type="checkbox" checked={uploadForm.is_available} onChange={(e) => setUploadForm({ ...uploadForm, is_available: e.target.checked })} />
                       Available for order
                     </label>
                   </div>
-
                   {uploadProgress > 0 && uploadProgress < 100 && (
                     <div className="upload-progress">
-                      <div className="progress-bar">
-                        <div className="progress-fill" style={{ width: `${uploadProgress}%` }} />
-                      </div>
+                      <div className="progress-bar"><div className="progress-fill" style={{ width: `${uploadProgress}%` }} /></div>
                       <span className="progress-text">{uploadProgress}%</span>
                     </div>
                   )}
-
-                  <button type="submit" className="btn btn-primary btn-large submit-product-btn"
-                    disabled={uploading || !bucketExists}>
-                    {uploading ? 'Uploading...' : 'Add Product'}
+                  <button type="submit" className="btn btn-primary btn-large submit-product-btn" disabled={uploading || !bucketExists}>
+                    {uploading ? 'Uploading…' : 'Add Product'}
                   </button>
                 </div>
               </div>
@@ -937,29 +1277,24 @@ function EmployeeDashboard({ user, onLogout }) {
         </div>
       )}
 
-      {/* ORDERS VIEW (unchanged — your full existing code) */}
+      {/* ============ ORDERS TAB ============ */}
       {activeTab === 'orders' && (
         <>
           <div className="stats-overview">
-            <div className="stat-card pending-stat">
-              <div className="stat-icon">⏳</div>
-              <div className="stat-info"><span className="stat-number">{getOrderCount('pending')}</span><span className="stat-label">Pending</span></div>
-            </div>
-            <div className="stat-card preparing-stat">
-              <div className="stat-icon">📦</div>
-              <div className="stat-info"><span className="stat-number">{getOrderCount('preparing')}</span><span className="stat-label">Preparing</span></div>
-            </div>
-            <div className="stat-card completed-stat">
-              <div className="stat-icon">✅</div>
-              <div className="stat-info"><span className="stat-number">{getOrderCount('completed')}</span><span className="stat-label">Completed</span></div>
-            </div>
-            <div className="stat-card declined-stat">
-              <div className="stat-icon">❌</div>
-              <div className="stat-info"><span className="stat-number">{getOrderCount('declined')}</span><span className="stat-label">Declined</span></div>
-            </div>
+            {[
+              { k: 'pending', icon: '⏳', label: 'Pending', cls: 'pending-stat' },
+              { k: 'preparing', icon: '📦', label: 'Preparing', cls: 'preparing-stat' },
+              { k: 'completed', icon: '✅', label: 'Completed', cls: 'completed-stat' },
+              { k: 'declined', icon: '❌', label: 'Declined', cls: 'declined-stat' }
+            ].map(s => (
+              <div key={s.k} className={`stat-card ${s.cls}`}>
+                <div className="stat-icon">{s.icon}</div>
+                <div className="stat-info"><span className="stat-number">{getOrderCount(s.k)}</span><span className="stat-label">{s.label}</span></div>
+              </div>
+            ))}
           </div>
 
-          <section className="employee-best-sellers" aria-label="Top best-selling products">
+          <section className="employee-best-sellers">
             <div className="employee-best-sellers-heading">
               <div><span className="employee-best-sellers-eyebrow">SALES HIGHLIGHTS</span><h2>🏆 Top Best Sellers</h2><p>Ranked by quantity sold in completed orders.</p></div>
             </div>
@@ -967,12 +1302,12 @@ function EmployeeDashboard({ user, onLogout }) {
               <div className="employee-best-sellers-empty">No completed sales yet.</div>
             ) : (
               <div className="employee-best-sellers-grid">
-                {employeeBestSellers.map((product, index) => (
-                  <article className={`employee-best-seller-card rank-${index + 1}`} key={`${product.name}-${index}`}>
-                    <span className="employee-best-seller-rank">#{index + 1}</span>
-                    <div className="employee-best-seller-icon">{index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}</div>
-                    <div className="employee-best-seller-info"><h3>{product.name}</h3><p>{product.category}</p></div>
-                    <strong>{product.sales} sold</strong>
+                {employeeBestSellers.map((p, i) => (
+                  <article className={`employee-best-seller-card rank-${i + 1}`} key={i}>
+                    <span className="employee-best-seller-rank">#{i + 1}</span>
+                    <div className="employee-best-seller-icon">{i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'}</div>
+                    <div className="employee-best-seller-info"><h3>{p.name}</h3><p>{p.category}</p></div>
+                    <strong>{p.sales} sold</strong>
                   </article>
                 ))}
               </div>
@@ -980,87 +1315,458 @@ function EmployeeDashboard({ user, onLogout }) {
           </section>
 
           <div className="kanban-board">
-            <div className="kanban-column">
-              <div className="column-header pending">
-                <span className="column-title"><ClockIcon /> Pending</span>
-                <span className="order-count">{getOrderCount('pending')}</span>
+            {[
+              { k: 'pending', icon: <ClockIcon />, label: 'Pending' },
+              { k: 'preparing', icon: <PackageIcon />, label: 'Preparing' },
+              { k: 'completed', icon: <CheckIcon />, label: 'Completed' },
+              { k: 'declined', icon: <XIcon />, label: 'Declined' }
+            ].map(col => (
+              <div className="kanban-column" key={col.k}>
+                <div className={`column-header ${col.k}`}>
+                  <span className="column-title">{col.icon} {col.label}</span>
+                  <span className="order-count">{getOrderCount(col.k)}</span>
+                </div>
+                <div className="column-content">
+                  {orders.filter(o => o.status === col.k).length === 0 ? (
+                    <div className="empty-column"><span className="empty-icon">✅</span><p>No orders</p></div>
+                  ) : orders.filter(o => o.status === col.k).map(renderOrderCard)}
+                </div>
               </div>
-              <div className="column-content">
-                {orders.filter(o => o.status === 'pending').length === 0 ? (
-                  <div className="empty-column"><span className="empty-icon">✅</span><p>No pending orders</p></div>
-                ) : orders.filter(o => o.status === 'pending').map(renderOrderCard)}
-              </div>
-            </div>
-
-            <div className="kanban-column">
-              <div className="column-header preparing">
-                <span className="column-title"><PackageIcon /> Preparing</span>
-                <span className="order-count">{getOrderCount('preparing')}</span>
-              </div>
-              <div className="column-content">
-                {orders.filter(o => o.status === 'preparing').length === 0 ? (
-                  <div className="empty-column"><span className="empty-icon">📦</span><p>No orders preparing</p></div>
-                ) : orders.filter(o => o.status === 'preparing').map(renderOrderCard)}
-              </div>
-            </div>
-
-            <div className="kanban-column">
-              <div className="column-header completed">
-                <span className="column-title"><CheckIcon /> Completed</span>
-                <span className="order-count">{getOrderCount('completed')}</span>
-              </div>
-              <div className="column-content">
-                {orders.filter(o => o.status === 'completed').length === 0 ? (
-                  <div className="empty-column"><span className="empty-icon">📋</span><p>No completed orders</p></div>
-                ) : orders.filter(o => o.status === 'completed').map(renderOrderCard)}
-              </div>
-            </div>
-
-            <div className="kanban-column">
-              <div className="column-header declined">
-                <span className="column-title"><XIcon /> Declined</span>
-                <span className="order-count">{getOrderCount('declined')}</span>
-              </div>
-              <div className="column-content">
-                {orders.filter(o => o.status === 'declined').length === 0 ? (
-                  <div className="empty-column"><span className="empty-icon">👍</span><p>No declined orders</p></div>
-                ) : orders.filter(o => o.status === 'declined').map(renderOrderCard)}
-              </div>
-            </div>
+            ))}
           </div>
-
-          {/* Order Details Modal — keep your existing one.
-              It reads selectedOrder.ocr_* fields; with the new columns,
-              you can additionally display recipientName / time / status. */}
-          {selectedOrder && (
-            <div className="modal-overlay" onClick={() => setSelectedOrder(null)}>
-              <div className="modal-content" onClick={e => e.stopPropagation()}>
-                {/* ... your existing modal content ... */}
-                {/* Inside OCR Extraction section, add: */}
-                {/* 
-                <div className="detail-row">
-                  <span className="detail-label">Recipient Name</span>
-                  <span className="detail-value">{selectedOrder.ocr_recipient_name || 'Not detected'}</span>
-                </div>
-                <div className="detail-row">
-                  <span className="detail-label">Transaction Time</span>
-                  <span className="detail-value">{selectedOrder.ocr_transaction_time || 'Not detected'}</span>
-                </div>
-                <div className="detail-row">
-                  <span className="detail-label">Transaction Status</span>
-                  <span className="detail-value">{selectedOrder.ocr_transaction_status || 'Not detected'}</span>
-                </div>
-                */}
-              </div>
-            </div>
-          )}
         </>
       )}
 
-      {/* PROFILE TAB (unchanged) */}
+      {/* ============ PROFILE TAB ============ */}
       {activeTab === 'profile' && (
         <div className="profile-view">
-          {/* ... your existing profile JSX ... */}
+          <div className="profile-container">
+            <div className="profile-header">
+              <div className="profile-avatar"><span className="avatar-icon">👨‍🍳</span></div>
+              <div className="profile-title"><h2>Employee Profile</h2><p>Manage your account settings</p></div>
+            </div>
+            {profileSuccess && <div className="profile-success"><span>✅</span>{profileSuccess}</div>}
+            {profileError && <div className="profile-error"><span>❌</span>{profileError}</div>}
+            <div className="profile-grid">
+              <div className="profile-card">
+                <div className="profile-card-header">
+                  <h3><span className="card-icon">📝</span> Profile</h3>
+                  {!isEditingProfile && <button className="edit-profile-btn" onClick={() => setIsEditingProfile(true)}><EditIcon /> Edit</button>}
+                </div>
+                {isEditingProfile ? (
+                  <form onSubmit={handleProfileUpdate} className="profile-form">
+                    <div className="form-group"><label>Full Name</label><input type="text" value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} required /></div>
+                    <div className="form-group"><label>Email</label><input type="email" value={profile.email} disabled className="disabled-input" /></div>
+                    <div className="profile-actions">
+                      <button type="button" className="btn-cancel" onClick={() => { setIsEditingProfile(false); setProfile({ ...profile, name: user?.name || '' }); }}>Cancel</button>
+                      <button type="submit" className="btn-save" disabled={profileLoading}>{profileLoading ? 'Saving…' : <><SaveIcon /> Save</>}</button>
+                    </div>
+                  </form>
+                ) : (
+                  <div className="profile-display">
+                    <div className="profile-field"><span className="field-label">Name</span><span className="field-value">{profile.name}</span></div>
+                    <div className="profile-field"><span className="field-label">Email</span><span className="field-value">{profile.email}</span></div>
+                    <div className="profile-field"><span className="field-label">Role</span><span className="field-value role-badge employee">Employee</span></div>
+                  </div>
+                )}
+              </div>
+              <div className="profile-card">
+                <div className="profile-card-header"><h3><span className="card-icon">🔒</span> Change Password</h3></div>
+                <form onSubmit={handlePasswordUpdate} className="profile-form">
+                  <div className="form-group"><label>Current Password</label><input type="password" value={passwordData.currentPassword} onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })} required /></div>
+                  <div className="form-group"><label>New Password</label><input type="password" minLength={6} value={passwordData.newPassword} onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })} required /></div>
+                  <div className="form-group"><label>Confirm New Password</label><input type="password" minLength={6} value={passwordData.confirmPassword} onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })} required /></div>
+                  <button type="submit" className="btn-save-password" disabled={profileLoading}>{profileLoading ? 'Updating…' : 'Update Password'}</button>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============ ORDER REVIEW MODAL ============ */}
+      {reviewOrder && (
+        <div className="modal-overlay" onClick={closeOrderReview}>
+          <div className="modal-content review-order-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="review-order-header">
+              <div className="modal-title">
+                <span className="modal-icon">🧾</span>
+                <div>
+                  <h2>Order Review</h2>
+                  <span className="modal-subtitle">
+                    #{reviewOrder.order_number || reviewOrder.id.slice(0, 8)} ·{' '}
+                    {new Date(reviewOrder.created_at).toLocaleString('en-PH')}
+                  </span>
+                </div>
+              </div>
+              <button className="close-btn" onClick={closeOrderReview}>×</button>
+            </div>
+
+            <div className="review-order-body">
+              {/* LEFT COLUMN */}
+              <div className="review-col">
+                <div className="review-block">
+                  <h4 className="review-block-title">👤 Customer Information</h4>
+                  <div className="review-info-grid">
+                    <div className="review-info-row">
+                      <span className="review-info-label">Name</span>
+                      <span className="review-info-value">
+                        {reviewOrder.walk_in_name ||
+                          reviewOrder.users?.name ||
+                          reviewOrder.customer_name ||
+                          'Guest'}
+                      </span>
+                    </div>
+                    <div className="review-info-row">
+                      <span className="review-info-label">Email</span>
+                      <span className="review-info-value">
+                        {reviewOrder.users?.email || reviewOrder.customer_email || '—'}
+                      </span>
+                    </div>
+                    <div className="review-info-row">
+                      <span className="review-info-label">Phone</span>
+                      <span className="review-info-value">
+                        {reviewOrder.users?.phone || reviewOrder.customer_phone || '—'}
+                      </span>
+                    </div>
+                    <div className="review-info-row">
+                      <span className="review-info-label">Order Type</span>
+                      <span className="review-info-value">
+                        {reviewOrder.order_type === 'takeout' ? '📦 Takeout' : '🍽️ Dine In'}
+                      </span>
+                    </div>
+                    <div className="review-info-row">
+                      <span className="review-info-label">Payment Method</span>
+                      <span className="review-info-value">
+                        {reviewOrder.payment_method?.toUpperCase() || '—'}
+                      </span>
+                    </div>
+                    <div className="review-info-row">
+                      <span className="review-info-label">Payment Status</span>
+                      <span className={`payment-status-badge ${reviewOrder.payment_status}`}>
+                        {(reviewOrder.payment_status === 'confirmed' || reviewOrder.payment_status === 'valid') && '✅ Accepted'}
+                        {reviewOrder.payment_status === 'rejected' && '❌ Rejected'}
+                        {(!reviewOrder.payment_status || reviewOrder.payment_status === 'unverified') && '⏳ Pending Review'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="review-block">
+                  <h4 className="review-block-title">🛍️ Order Items</h4>
+                  <div className="review-items-table">
+                    <div className="review-items-header">
+                      <span>Item</span>
+                      <span>Qty</span>
+                      <span>Price</span>
+                      <span>Subtotal</span>
+                    </div>
+                    {reviewOrder.order_items?.map((it, i) => (
+                      <div key={i} className="review-items-row">
+                        <span className="review-item-name">{it.menu_items?.name || 'Item'}</span>
+                        <span className="review-item-qty">{it.quantity}</span>
+                        <span className="review-item-price">₱{Number(it.price_at_time).toFixed(2)}</span>
+                        <span className="review-item-subtotal">₱{(Number(it.price_at_time) * it.quantity).toFixed(2)}</span>
+                      </div>
+                    ))}
+                    <div className="review-items-total">
+                      <span style={{ gridColumn: '1 / 4' }}>TOTAL</span>
+                      <span>₱{Number(reviewOrder.total_amount).toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* RIGHT COLUMN */}
+              <div className="review-col">
+                <div className="review-block">
+                  <h4 className="review-block-title">💳 Payment Proof (GCash / Maya)</h4>
+
+                  {(() => {
+                    const url = getReceiptUrl(reviewOrder);
+                    if (url) {
+                      return (
+                        <div className="review-proof-container">
+                          <img
+                            src={url}
+                            alt="Payment receipt"
+                            className="review-proof-image"
+                            onClick={() => setReceiptViewerUrl(url)}
+                            onError={(e) => {
+                              console.error('❌ Failed to load receipt image:', url);
+                              e.currentTarget.style.border = '2px solid #ef4444';
+                              e.currentTarget.style.opacity = '0.4';
+                            }}
+                          />
+                          <p className="review-proof-hint">Click image to enlarge</p>
+
+                          <div className="ocr-tool-buttons">
+                            <button
+                              type="button"
+                              className="btn-ocr-rerun"
+                              onClick={() => runReceiptOcr(url)}
+                              disabled={reviewOcrRunning}
+                            >
+                              {reviewOcrRunning ? '⏳ Running OCR…' : '🔍 Re-run OCR'}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-ocr-download"
+                              onClick={() => downloadReceipt(url)}
+                            >
+                              ⬇️ Download
+                            </button>
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="btn-ocr-download"
+                              style={{ textDecoration: 'none' }}
+                            >
+                              🔗 Open in new tab
+                            </a>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div className="review-proof-placeholder">
+                        <span className="placeholder-icon">🖼️</span>
+                        <p>No payment proof uploaded by the customer.</p>
+                        <details style={{ marginTop: '0.75rem', width: '100%' }}>
+                          <summary
+                            style={{
+                              cursor: 'pointer',
+                              color: '#94a3b8',
+                              fontSize: '0.78rem',
+                            }}
+                          >
+                            🔍 Debug: show order fields
+                          </summary>
+                          <pre
+                            style={{
+                              marginTop: '0.5rem',
+                              maxHeight: '200px',
+                              overflow: 'auto',
+                              background: '#0f172a',
+                              padding: '0.6rem',
+                              borderRadius: '8px',
+                              fontSize: '0.7rem',
+                              color: '#cbd5e1',
+                              textAlign: 'left',
+                            }}
+                          >
+                            {JSON.stringify(
+                              Object.fromEntries(
+                                Object.entries(reviewOrder || {}).filter(
+                                  ([k]) =>
+                                    !k.includes('items') &&
+                                    !k.includes('users') &&
+                                    typeof reviewOrder[k] !== 'object'
+                                )
+                              ),
+                              null,
+                              2
+                            )}
+                          </pre>
+                        </details>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                <div className="review-block">
+                  <h4 className="review-block-title">🤖 OCR Analysis</h4>
+
+                  {reviewOcrRunning && (
+                    <p className="ocr-disclaimer">⏳ Reading receipt with OCR…</p>
+                  )}
+                  {reviewOcrError && (
+                    <p className="ocr-warning">⚠️ {reviewOcrError}</p>
+                  )}
+
+                  {reviewOcr && !reviewOcrRunning && (
+                    <>
+                      <div className="review-info-grid">
+                        <div className="review-info-row">
+                          <span className="review-info-label">Amount</span>
+                          <span className="review-info-value">
+                            {reviewOcr.amount != null ? `₱${Number(reviewOcr.amount).toFixed(2)}` : '—'}
+                          </span>
+                        </div>
+                        <div className="review-info-row">
+                          <span className="review-info-label">Reference #</span>
+                          <span className="review-info-value">{reviewOcr.reference || '—'}</span>
+                        </div>
+                        <div className="review-info-row">
+                          <span className="review-info-label">
+                            Sender{reviewOcr.senderKind === 'phone' ? ' (Phone)' : reviewOcr.senderKind === 'name' ? ' (Name)' : ''}
+                          </span>
+                          <span className="review-info-value">{reviewOcr.accountNumber || '—'}</span>
+                        </div>
+                        <div className="review-info-row">
+                          <span className="review-info-label">Date</span>
+                          <span className="review-info-value">{reviewOcr.transactionDate || '—'}</span>
+                        </div>
+                        <div className="review-info-row">
+                          <span className="review-info-label">Time</span>
+                          <span className="review-info-value">{reviewOcr.transactionTime || '—'}</span>
+                        </div>
+                      </div>
+
+                      {reviewOcr.amount != null &&
+                        Number(reviewOcr.amount) !== Number(reviewOrder.total_amount) && (
+                          <div className="review-warning" style={{ marginTop: '0.75rem' }}>
+                            <span>⚠️</span>
+                            <p>
+                              OCR amount (₱{Number(reviewOcr.amount).toFixed(2)}) does not
+                              match order total (₱{Number(reviewOrder.total_amount).toFixed(2)}).
+                              Verify manually before accepting.
+                            </p>
+                          </div>
+                        )}
+
+                      <details className="ocr-details">
+                        <summary>View raw OCR text</summary>
+                        <pre>{reviewOcrRaw || '(no text extracted)'}</pre>
+                      </details>
+                    </>
+                  )}
+
+                  {!reviewOcr && !reviewOcrRunning && !reviewOcrError && (
+                    <p className="ocr-disclaimer">
+                      {getReceiptUrl(reviewOrder)
+                        ? 'OCR has not been run yet. Click "Re-run OCR" above.'
+                        : 'Upload a payment proof to enable OCR analysis.'}
+                    </p>
+                  )}
+
+                  <p className="ocr-disclaimer">
+                    ⚠️ OCR results are best-effort and may be inaccurate. Always visually
+                    verify the receipt before accepting payment.
+                  </p>
+                </div>
+
+                <div className="review-block">
+                  <h4 className="review-block-title">⚡ Actions</h4>
+
+                  {reviewStatusMsg && (
+                    <div className={`review-status-message ${reviewStatusMsg.type}`}>
+                      <span>{reviewStatusMsg.type === 'success' ? '✅' : '❌'}</span>
+                      <p>{reviewStatusMsg.text}</p>
+                    </div>
+                  )}
+
+                  {reviewOrder.payment_status !== 'confirmed' &&
+                    reviewOrder.payment_status !== 'valid' &&
+                    reviewOrder.payment_status !== 'rejected' && (
+                      <div style={{ marginBottom: '0.75rem' }}>
+                        <div className="review-warning">
+                          <span>🔎</span>
+                          <p>Review the receipt above, then accept or reject the payment.</p>
+                        </div>
+                        <div className="payment-decision-buttons">
+                          <button
+                            className="btn-accept"
+                            onClick={() => handleReviewPayment('confirmed')}
+                            disabled={reviewActionLoading}
+                          >
+                            ✅ Accept Payment
+                          </button>
+                          <button
+                            className="btn-reject"
+                            onClick={() => handleReviewPayment('rejected')}
+                            disabled={reviewActionLoading}
+                          >
+                            ❌ Reject Payment
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                  <div className="review-actions-row">
+                    {reviewOrder.status === 'pending' && (
+                      <>
+                        <button
+                          className="btn btn-primary"
+                          disabled={
+                            reviewOrder.payment_status !== 'confirmed' &&
+                            reviewOrder.payment_status !== 'valid'
+                          }
+                          onClick={() => handleReviewOrderStatus('preparing')}
+                        >
+                          📦 Start Preparing
+                        </button>
+                        <button
+                          className="btn btn-danger"
+                          onClick={() => handleReviewOrderStatus('declined')}
+                        >
+                          ❌ Decline Order
+                        </button>
+                      </>
+                    )}
+                    {reviewOrder.status === 'preparing' && (
+                      <button
+                        className="btn btn-success"
+                        onClick={() => handleReviewOrderStatus('completed')}
+                      >
+                        ✅ Mark Completed
+                      </button>
+                    )}
+                    {(reviewOrder.status === 'completed' || reviewOrder.status === 'declined') && (
+                      <p className="ocr-disclaimer">
+                        This order is already <strong>{reviewOrder.status}</strong>.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============ RECEIPT VIEWER OVERLAY ============ */}
+      {receiptViewerUrl && (
+        <div className="receipt-viewer-overlay" onClick={() => setReceiptViewerUrl(null)}>
+          <div className="receipt-viewer-content" onClick={(e) => e.stopPropagation()}>
+            <button className="receipt-viewer-close" onClick={() => setReceiptViewerUrl(null)}>×</button>
+            <h3 className="receipt-viewer-title">Payment Receipt</h3>
+            <img src={receiptViewerUrl} alt="Payment receipt enlarged" className="receipt-viewer-image" />
+          </div>
+        </div>
+      )}
+
+      {/* Receipt modal after POS order */}
+      {posLastOrder && (
+        <div className="modal-overlay" onClick={() => setPosLastOrder(null)}>
+          <div className="modal-content pos-receipt-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title"><span className="modal-icon">🧾</span><h2>Order Placed</h2></div>
+              <button className="close-btn" onClick={() => setPosLastOrder(null)}>×</button>
+            </div>
+            <div style={{ padding: '1.5rem' }}>
+              <p style={{ color: '#34d399', fontWeight: 600, marginBottom: '1rem' }}>
+                ✅ Order #{posLastOrder.order.order_number || posLastOrder.order.id.slice(0, 8)} sent to kitchen.
+              </p>
+              <div style={{ background: '#0f172a', padding: '1rem', borderRadius: 10, color: '#e2e8f0', fontSize: '0.9rem' }}>
+                {posLastOrder.items.map((i, idx) => (
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>{i.qty}× {i.name}</span><span>₱{(i.price * i.qty).toFixed(2)}</span>
+                  </div>
+                ))}
+                <hr style={{ borderColor: '#334155', margin: '0.6rem 0' }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Subtotal</span><span>₱{posLastOrder.subtotal.toFixed(2)}</span></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, marginTop: '0.5rem' }}>
+                  <span>TOTAL</span><span>₱{posLastOrder.total.toFixed(2)}</span>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
+                <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setPosLastOrder(null)}>Done</button>
+                <button className="btn btn-primary" style={{ flex: 1 }} onClick={posPrintReceipt}>🖨️ Print Receipt</button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
