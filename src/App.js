@@ -1,9 +1,10 @@
 // src/App.js
 import React, { useState, useEffect, useRef } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { supabase } from './supabaseClient';
 import './App.css';
 import Login from './components/Login';
+import LandingPage from './components/LandingPage';
 import CustomerDashboard from './components/CustomerDashboard';
 import EmployeeDashboard from './components/EmployeeDashboard';
 import OwnerDashboard from './components/OwnerDashboard';
@@ -154,23 +155,38 @@ function App() {
     <Router>
       <div className="App">
         <Routes>
+          {/* ============ PUBLIC LANDING ============ */}
           <Route
             path="/"
             element={
-              !isAuthenticated ? (
-                <Login onLogin={handleLogin} />
-              ) : (
+              <LandingPageWrapper
+                currentUser={currentUser}
+                isAuthenticated={isAuthenticated}
+                userRole={userRole}
+              />
+            }
+          />
+
+          {/* ============ LOGIN ============ */}
+          <Route
+            path="/login"
+            element={
+              isAuthenticated ? (
                 <Navigate to={`/${userRole}`} />
+              ) : (
+                <LoginPageWrapper onLogin={handleLogin} />
               )
             }
           />
+
+          {/* ============ DASHBOARDS ============ */}
           <Route
             path="/customer"
             element={
               isAuthenticated && userRole === 'customer' ? (
                 <CustomerDashboard user={currentUser} onLogout={handleLogout} />
               ) : (
-                <Navigate to="/" />
+                <Navigate to="/login" />
               )
             }
           />
@@ -180,7 +196,7 @@ function App() {
               isAuthenticated && userRole === 'employee' ? (
                 <EmployeeDashboard user={currentUser} onLogout={handleLogout} />
               ) : (
-                <Navigate to="/" />
+                <Navigate to="/login" />
               )
             }
           />
@@ -190,13 +206,65 @@ function App() {
               isAuthenticated && userRole === 'owner' ? (
                 <OwnerDashboard user={currentUser} onLogout={handleLogout} />
               ) : (
-                <Navigate to="/" />
+                <Navigate to="/login" />
               )
             }
           />
+
+          {/* ============ FALLBACK ============ */}
+          <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </div>
     </Router>
+  );
+}
+
+// ============================================
+// WRAPPER COMPONENTS — give LandingPage + Login
+// access to useNavigate() (must be inside Router)
+// ============================================
+
+function LandingPageWrapper({ currentUser, isAuthenticated, userRole }) {
+  const navigate = useNavigate();
+
+  const handleNavigateToAuth = (mode) => {
+    // Only mode is 'login' now (your Login component handles both)
+    navigate('/login');
+  };
+
+  const handleNavigateToDashboard = () => {
+    if (!isAuthenticated) {
+      navigate('/login');
+      return;
+    }
+    if (userRole === 'owner') return navigate('/owner');
+    if (userRole === 'employee') return navigate('/employee');
+    return navigate('/customer');
+  };
+
+  return (
+    <LandingPage
+      currentUser={isAuthenticated ? currentUser : null}
+      onNavigateToAuth={handleNavigateToAuth}
+      onNavigateToDashboard={handleNavigateToDashboard}
+    />
+  );
+}
+
+function LoginPageWrapper({ onLogin }) {
+  const navigate = useNavigate();
+
+  return (
+    <Login
+      onLogin={(role, userData) => {
+        onLogin(role, userData);
+        // After login, redirect to correct dashboard
+        if (role === 'owner') navigate('/owner');
+        else if (role === 'employee') navigate('/employee');
+        else navigate('/customer');
+      }}
+      onBack={() => navigate('/')}
+    />
   );
 }
 
