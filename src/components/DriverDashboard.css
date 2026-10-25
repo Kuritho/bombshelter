@@ -1,0 +1,44 @@
+/* src/components/DriverDashboard.css */
+.driver-dashboard { display: flex; flex-direction: column; height: 100vh; background: #0f172a; color: white; font-family: 'Inter', sans-serif; }
+.driver-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 2rem; background: #1e293b; border-bottom: 1px solid #334155; }
+.driver-header-right { display: flex; align-items: center; gap: 1rem; }
+.live-badge { background: rgba(239, 68, 68, 0.2); color: #f87171; padding: 0.4rem 0.8rem; border-radius: 20px; font-size: 0.8rem; font-weight: bold; border: 1px solid #ef4444; animation: pulse 2s infinite; }
+.driver-logout-btn { background: #ef4444; color: white; border: none; padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; }
+
+.driver-layout { display: flex; flex: 1; overflow: hidden; }
+.driver-sidebar { width: 350px; background: #1e293b; border-right: 1px solid #334155; padding: 1rem; overflow-y: auto; }
+.driver-order-list { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 1rem; }
+.driver-order-card { background: #0f172a; padding: 1rem; border-radius: 8px; border: 1px solid #334155; cursor: pointer; transition: 0.2s; }
+.driver-order-card:hover { border-color: #475569; }
+.driver-order-card.active { border-color: #3b82f6; box-shadow: 0 0 10px rgba(59,130,246,0.2); }
+.card-top { display: flex; justify-content: space-between; margin-bottom: 0.5rem; font-size: 0.8rem; color: #94a3b8; }
+.status-badge { padding: 0.2rem 0.5rem; border-radius: 4px; text-transform: uppercase; font-weight: bold; font-size: 0.7rem; }
+.status-badge.preparing { background: rgba(245,158,11,0.2); color: #f59e0b; }
+.status-badge.out_for_delivery { background: rgba(59,130,246,0.2); color: #60a5fa; }
+.unassigned-tag { background: #ef4444; color: white; padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight: bold; display: inline-block; margin-top: 0.5rem; }
+
+.driver-main { flex: 1; display: flex; flex-direction: column; overflow-y: auto; }
+.map-section { position: relative; background: #1e293b; border-bottom: 1px solid #334155; }
+.btn-google-maps { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 1000; background: #3b82f6; color: white; padding: 0.8rem 1.5rem; border-radius: 20px; text-decoration: none; font-weight: bold; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+
+.driver-action-panel { padding: 1.5rem; background: #0f172a; }
+.action-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+.toggle-broadcast-btn { background: #334155; color: white; border: none; padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; font-weight: bold; }
+.toggle-broadcast-btn.active { background: #10b981; }
+
+.btn-primary-full { width: 100%; padding: 1rem; border: none; border-radius: 8px; background: #3b82f6; color: white; font-weight: bold; font-size: 1rem; cursor: pointer; transition: 0.2s; }
+.btn-primary-full:hover { background: #2563eb; }
+
+.verification-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+.verify-box { background: #1e293b; padding: 1.5rem; border-radius: 12px; border: 1px solid #334155; }
+.verify-box h4 { margin-top: 0; color: #cbd5e1; }
+.btn-upload { display: inline-block; background: #3b82f6; color: white; padding: 0.8rem 1.5rem; border-radius: 8px; cursor: pointer; font-weight: bold; text-align: center; width: 100%; }
+.otp-inputs { display: flex; gap: 0.5rem; }
+.otp-inputs input { flex: 1; padding: 0.8rem; border-radius: 8px; border: 1px solid #475569; background: #0f172a; color: white; font-size: 1rem; }
+.otp-inputs button { background: #10b981; color: white; border: none; padding: 0 1rem; border-radius: 8px; cursor: pointer; font-weight: bold; }
+.error-text { color: #f87171; font-size: 0.85rem; margin-top: 0.5rem; }
+
+.empty-map-state { display: flex; align-items: center; justify-content: center; height: 100%; color: #64748b; font-size: 1.2rem; }
+
+@keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+@media (max-width: 900px) { .driver-layout { flex-direction: column; } .driver-sidebar { width: 100%; height: 200px; } .verification-grid { grid-template-columns: 1fr; } }
