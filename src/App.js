@@ -8,6 +8,7 @@ import LandingPage from './components/LandingPage';
 import CustomerDashboard from './components/CustomerDashboard';
 import EmployeeDashboard from './components/EmployeeDashboard';
 import OwnerDashboard from './components/OwnerDashboard';
+import DriverDashboard from './components/DriverDashboard';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -16,10 +17,6 @@ function App() {
   const [loading, setLoading] = useState(true);
 
   const authInProgressRef = useRef(false);
-
-  // 🔒 When true, the auth listener is completely disabled.
-  //    Nothing — not signIn, not signOut, not token refresh —
-  //    can change the current user state.
   const userLockedRef = useRef(false);
 
   useEffect(() => {
@@ -28,7 +25,6 @@ function App() {
     };
     window.__setSigningUp = window.__setAuthInProgress;
 
-    // 🔒 Lock controls exposed to hooks
     window.__lockUser = () => {
       userLockedRef.current = true;
       console.log('🔒 User locked — auth listener disabled');
@@ -49,22 +45,34 @@ function App() {
   useEffect(() => {
     const checkSession = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+        if (sessionError) {
+          console.error('❌ Error getting session:', sessionError);
+        }
 
         if (session && session.user) {
+          // Check email confirmation
           if (!session.user.email_confirmed_at) {
             console.warn('⚠️ Unverified email in session — signing out');
             await supabase.auth.signOut();
             return;
           }
 
+          // Fetch user profile
           const { data: userData, error: userError } = await supabase
             .from('users')
             .select('*')
             .eq('id', session.user.id)
             .single();
 
-          if (!userError && userData) {
+          if (userError) {
+            console.error('❌ Failed to retrieve user profile. Error:', userError);
+            console.error('   User ID from session:', session.user.id);
+            console.error('   Email from session:', session.user.email);
+            // Do not set authenticated if profile retrieval fails
+          } else if (userData) {
+            console.log('✅ User profile loaded:', userData);
             setIsAuthenticated(true);
             setUserRole(userData.role);
             setCurrentUser(userData);
@@ -73,7 +81,7 @@ function App() {
           }
         }
       } catch (error) {
-        console.error('Session check error:', error);
+        console.error('❌ Session check exception:', error);
       } finally {
         setLoading(false);
       }
@@ -83,13 +91,10 @@ function App() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        // 🛑 1. Ignore during login flow
         if (authInProgressRef.current) {
           console.log('🚫 Ignoring auth event during login flow:', event);
           return;
         }
-
-        // 🛑 2. HARD LOCK — nothing gets through
         if (userLockedRef.current) {
           console.log('🔒 Ignoring auth event — user is locked:', event);
           return;
@@ -108,7 +113,10 @@ function App() {
             .eq('id', session.user.id)
             .single();
 
-          if (!error && userData) {
+          if (error) {
+            console.error('❌ Auth state change: failed to retrieve profile:', error);
+            console.error('   Session User ID:', session.user.id);
+          } else if (userData) {
             setIsAuthenticated(true);
             setUserRole(userData.role);
             setCurrentUser(userData);
@@ -137,7 +145,6 @@ function App() {
   };
 
   const handleLogout = async () => {
-    // Unlock before signing out, otherwise the listener ignores SIGNED_OUT
     userLockedRef.current = false;
     await supabase.auth.signOut();
     setIsAuthenticated(false);
@@ -210,6 +217,16 @@ function App() {
               )
             }
           />
+          <Route
+            path="/driver"
+            element={
+              isAuthenticated && userRole === 'driver' ? (
+                <DriverDashboard user={currentUser} onLogout={handleLogout} />
+              ) : (
+                <Navigate to="/login" />
+              )
+            }
+          />
 
           {/* ============ FALLBACK ============ */}
           <Route path="*" element={<Navigate to="/" />} />
@@ -220,15 +237,13 @@ function App() {
 }
 
 // ============================================
-// WRAPPER COMPONENTS — give LandingPage + Login
-// access to useNavigate() (must be inside Router)
+// WRAPPER COMPONENTS
 // ============================================
 
 function LandingPageWrapper({ currentUser, isAuthenticated, userRole }) {
   const navigate = useNavigate();
 
   const handleNavigateToAuth = (mode) => {
-    // Only mode is 'login' now (your Login component handles both)
     navigate('/login');
   };
 
@@ -239,6 +254,7 @@ function LandingPageWrapper({ currentUser, isAuthenticated, userRole }) {
     }
     if (userRole === 'owner') return navigate('/owner');
     if (userRole === 'employee') return navigate('/employee');
+    if (userRole === 'driver') return navigate('/driver');
     return navigate('/customer');
   };
 
@@ -261,6 +277,7 @@ function LoginPageWrapper({ onLogin }) {
         // After login, redirect to correct dashboard
         if (role === 'owner') navigate('/owner');
         else if (role === 'employee') navigate('/employee');
+        else if (role === 'driver') navigate('/driver');
         else navigate('/customer');
       }}
       onBack={() => navigate('/')}
