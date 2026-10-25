@@ -115,6 +115,7 @@ const getRoleLabel = (roleKey) => {
     case 'customer': return 'Customer';
     case 'employee': return 'Employee';
     case 'owner': return 'Owner';
+    case 'driver': return 'Driver';
     default: return roleKey;
   }
 };
@@ -156,7 +157,6 @@ const Login = ({ onLogin }) => {
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
-        // If session exists but email isn't verified, sign out
         if (!session.user.email_confirmed_at) {
           supabase.auth.signOut();
         }
@@ -201,7 +201,7 @@ const Login = ({ onLogin }) => {
         // ============================================
         // SIGN UP FLOW
         // ============================================
-        const signUpRole = 'customer';
+        const signUpRole = 'customer'; // Always sign up as customer by default
 
         const { data: authData, error: signUpError } = await supabase.auth.signUp({
           email,
@@ -228,8 +228,7 @@ const Login = ({ onLogin }) => {
 
         console.log('✅ Auth user created:', authData.user.id);
 
-        // Sign out any auto-created session (shouldn't exist with email confirm ON,
-        // but we do this defensively)
+        // Sign out any auto-created session
         await supabase.auth.signOut();
 
         // Show verification modal
@@ -251,7 +250,6 @@ const Login = ({ onLogin }) => {
         });
 
         if (signInError) {
-          // Handle unverified email
           if (
             signInError.message.toLowerCase().includes('email not confirmed') ||
             signInError.message.toLowerCase().includes('email not verified')
@@ -267,7 +265,6 @@ const Login = ({ onLogin }) => {
           throw new Error('Sign in failed. Please try again.');
         }
 
-        // Double-check email verification
         if (!authData.user.email_confirmed_at) {
           await supabase.auth.signOut();
           setPendingVerifyEmail(email);
@@ -275,30 +272,28 @@ const Login = ({ onLogin }) => {
           throw new Error('Please verify your email before signing in.');
         }
 
-        // Fetch profile
+        // ✅ FETCH ROLE FROM DATABASE (Source of truth)
         const { data: userData, error: userError } = await supabase
           .from('users')
           .select('*')
           .eq('id', authData.user.id)
-          .maybeSingle();
+          .single();
 
-        if (userError) {
+        if (userError || !userData) {
+          console.error('Database error fetching profile:', userError);
           await supabase.auth.signOut();
-          throw new Error('Could not retrieve user profile.');
+          throw new Error('Could not retrieve user profile. Please contact support.');
         }
 
-        if (!userData) {
-          await supabase.auth.signOut();
-          throw new Error('User profile not found. Please contact support.');
-        }
+        const actualRole = userData.role;
 
-        // ✅ ROLE VALIDATION
-        if (userData.role !== role) {
+        // ✅ ROLE VALIDATION (Compare DB role with selected dropdown)
+        if (actualRole !== role) {
           await supabase.auth.signOut();
           const selectedLabel = getRoleLabel(role);
-          const actualLabel = getRoleLabel(userData.role);
+          const actualLabel = getRoleLabel(actualRole);
           throw new Error(
-            `This account is registered as "${actualLabel}", but you selected "${selectedLabel}". Please select the correct role and try again.`
+            `This account is registered as "${actualLabel}", but you selected "${selectedLabel}". Please select "${actualLabel}" in the dropdown and try again.`
           );
         }
 
@@ -306,7 +301,9 @@ const Login = ({ onLogin }) => {
         else clearCredentials();
 
         setAuthInProgress(false);
-        onLogin(role, userData);
+        
+        // Pass the database user object to App.js
+        onLogin(actualRole, userData);
         return;
       }
     } catch (err) {
@@ -343,7 +340,6 @@ const Login = ({ onLogin }) => {
     setIsSignUp(false);
     setRole('customer');
     setError('');
-    // Email stays so user can resend or log in
   };
 
   // ============================================
@@ -469,6 +465,7 @@ const Login = ({ onLogin }) => {
                     <select value={role} onChange={(e) => setRole(e.target.value)} className="role-select">
                       <option value="customer">☕ Customer</option>
                       <option value="employee">👨‍🍳 Employee</option>
+                      <option value="driver">🛵 Driver</option>
                       <option value="owner">👑 Owner</option>
                     </select>
                   </div>
